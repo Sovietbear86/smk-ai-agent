@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SMK Widget Test</title>
+</head>
+<body>
+  <h1>Тест страницы</h1>
+  <p>Здесь будем проверять виджет.</p>
+
+  <script>
+    window.SMKChatWidgetConfig = {
+      apiUrl: "http://127.0.0.1:8000/chat",
+      title: "SMK Performance Lab",
+      subtitle: "Диностенд • ECU • Запись",
+      primaryColor: "#111111",
+      accentColor: "#d62828",
+      position: "right",
+      welcomeMessage: "Здравствуйте! Помогу с настройкой, диностендом и записью."
+    };
+  </script>
+
+  <script src="http://127.0.0.1:8000/static/widget/smk-chat-widget.js"></script>
+</body>
+</html>

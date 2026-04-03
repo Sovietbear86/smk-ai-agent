@@ -1,0 +1,43 @@
+Main links for SMK-AI-AGENT
+
+1. Google SpreSheet 
+https://docs.google.com/spreadsheets/d/1za2WU9Rqu0gtmgUiG_ZfiOvbBzVY91t6LRMRjvbqtxU/edit?gid=0#gid=0
+
+2. FAST_API
+
+http://127.0.0.1:8000/docs#/default/chat_chat_post
+
+3. Google Cloud Project
+
+3.1. Project https://console.cloud.google.com/iam-admin/serviceaccounts/details/114814504508049535598/keys?project=smk-ai-agent-personal&supportedpurview=project
+
+3.2 API https://console.cloud.google.com/apis/api/sheets.googleapis.com/metrics?project=smk-ai-agent-personal
+
+4. OpenAI Billing
+
+4.1. https://platform.openai.com/settings/organization/billing/overview
+
+4.2. OpenAI API KEY 
+
+https://platform.openai.com/api-keys
+
+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
+
+5. Telegram bot
+
+SMK Performance Lab Assistant
+
+https://api.telegram.org/bot8706082415:AAGctF9A1WpLn7ts_DCIqwOH3qpmfengtJw/getUpdates
+
+{"ok":true,"result":[{"update_id":612741425,
+"message":{"message_id":3,"from":{"id":1731543096,"is_bot":false,"first_name":"\u0412\u0438\u043a\u0442\u043e\u0440","last_name":"\u041a.","username":"sovietbeer","language_code":"ru","is_premium":true},"chat":{"id":1731543096,"first_name":"\u0412\u0438\u043a\u0442\u043e\u0440","last_name":"\u041a.","username":"sovietbeer","type":"private"},"date":1775142534,"text":"hi"}}]}
+
+6. Google Search console (полезные ссылки)
+
+https://search.google.com/search-console/performance/insights?resource_id=https%3A%2F%2Fwww.smkperformancelab.com%2F&time_range=LAST7DAYS
+
+https://search.google.com/search-console/sitemaps?resource_id=https%3A%2F%2Fwww.smkperformancelab.com%2F
+
+7. Google Cloud Agent API
+
+https://smk-ai-agent-533809864888.us-central1.run.app/

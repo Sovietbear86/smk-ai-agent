@@ -1,0 +1,61 @@
+[
+  {
+    "id": 1,
+    "created_at": "2026-04-02T14:57:17.845044",
+    "session_id": "lead1",
+    "status": "new",
+    "data": {
+      "year": "2020",
+      "make": "Honda",
+      "model": "VFR1200X",
+      "goal": "хочу диагностику и проверить AFR",
+      "contact": "@victor",
+      "contact_type": "telegram"
+    }
+  },
+  {
+    "id": 2,
+    "created_at": "2026-04-02T15:24:25.504035",
+    "session_id": "lead2",
+    "status": "new",
+    "data": {
+      "year": "2020",
+      "make": "Honda",
+      "model": "VFR1200X",
+      "goal": "хочу диагностику и проверить AFR",
+      "contact": "@sovietbeer",
+      "contact_type": "telegram"
+    }
+  },
+  {
+    "id": 3,
+    "created_at": "2026-04-02T16:48:49.216856",
+    "session_id": "lead5",
+    "status": "new",
+    "data": {
+      "year": "2020",
+      "make": "Honda",
+      "model": "VFR1200X",
+      "goal": "хочу диагностику",
+      "contact": "@sovietbeer",
+      "contact_type": "telegram",
+      "selected_slot": "Второй"
+    }
+  },
+  {
+    "id": 4,
+    "created_at": "2026-04-02T17:09:45.566638",
+    "session_id": "lead_slots_2",
+    "status": "new",
+    "data": {
+      "year": "2020",
+      "make": "Honda",
+      "model": "VFR1200X",
+      "goal": "хочу диагностику и проверить AFR",
+      "contact": "@sovietbeer",
+      "contact_type": "telegram",
+      "selected_slot": "2026_04_05 15:00-17:00",
+      "booked_slot_id": "slot_002"
+    }
+  }
+]
