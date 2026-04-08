@@ -1,6 +1,8 @@
 from typing import Optional
+import logging
+import traceback
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -13,12 +15,14 @@ from app.services.notification_service import notify_new_lead
 from app.services.session_service import get_session, save_session
 from app.services.ui_builder import enrich_result_with_ui
 
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # временно для локальной разработки
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -43,64 +47,82 @@ class ChatRequest(BaseModel):
 
 @app.post("/chat", response_model=ChatResponse)
 def chat(req: ChatRequest):
-    previous = get_session(req.session_id)
+    try:
+        logger.info("Incoming message: session_id=%s message=%s", req.session_id, req.message)
 
-    state = {
-        **previous,
-        "user_message": req.message,
-    }
+        previous = get_session(req.session_id)
+        logger.info("Previous session state: %s", previous)
 
-    result = graph.invoke(state)
-    result = enrich_result_with_ui(result)
+        state = {
+            **previous,
+            "user_message": req.message,
+        }
 
-    booking_stage = result.get(
-        "booking_stage",
-        previous.get("booking_stage", "not_started"),
-    )
-    collected_data = result.get(
-        "collected_data",
-        previous.get("collected_data", {}),
-    )
+        result = graph.invoke(state)
+        result = enrich_result_with_ui(result)
 
-    lead_saved = False
-    saved_lead = None
-    telegram_result = None
+        logger.info("Graph result: %s", result)
 
-    if booking_stage == "ready" and not previous.get("lead_saved"):
-        saved_lead = create_lead(req.session_id, collected_data)
-        lead_saved = True
-        telegram_result = notify_new_lead(saved_lead)
+        booking_stage = result.get(
+            "booking_stage",
+            previous.get("booking_stage", "not_started"),
+        )
+        collected_data = result.get(
+            "collected_data",
+            previous.get("collected_data", {}),
+        )
 
-    save_session(
-        req.session_id,
-        {
-            "collected_data": collected_data,
-            "booking_stage": booking_stage,
-            "lead_saved": lead_saved or previous.get("lead_saved", False),
-        },
-    )
+        lead_saved = False
+        saved_lead = None
+        telegram_result = None
 
-    reply = result.get("answer", "Извините, не удалось сформировать ответ.")
+        if booking_stage == "ready" and not previous.get("lead_saved"):
+            logger.info("Lead is ready to be saved. collected_data=%s", collected_data)
 
-    if lead_saved:
-        slot = collected_data.get("selected_slot")
-        if slot:
-            reply = f"Записали вас на {slot}. Мы свяжемся с вами для подтверждения."
-        else:
-            reply = "Заявка сохранена. Мы свяжемся с вами для подтверждения деталей."
+            saved_lead = create_lead(req.session_id, collected_data)
+            logger.info("Lead saved successfully: %s", saved_lead)
 
-    quick_replies = [
-        QuickReply(label=item["label"], value=item["value"])
-        for item in result.get("quick_replies", [])
-    ]
+            lead_saved = True
 
-    slots = [
-        SlotItem(label=item, value=f"Выбираю слот {item}")
-        for item in result.get("available_slots", [])
-    ]
+            telegram_result = notify_new_lead(saved_lead)
+            logger.info("Telegram notification result: %s", telegram_result)
 
-    return ChatResponse(
-        reply=reply,
-        quick_replies=quick_replies,
-        slots=slots,
-    )
+        save_session(
+            req.session_id,
+            {
+                "collected_data": collected_data,
+                "booking_stage": booking_stage,
+                "lead_saved": lead_saved or previous.get("lead_saved", False),
+            },
+        )
+        logger.info("Session saved successfully")
+
+        reply = result.get("answer", "Извините, не удалось сформировать ответ.")
+
+        if lead_saved:
+            slot = collected_data.get("selected_slot")
+            if slot:
+                reply = f"Записали вас на {slot}. Мы свяжемся с вами для подтверждения."
+            else:
+                reply = "Заявка сохранена. Мы свяжемся с вами для подтверждения деталей."
+
+        quick_replies = [
+            QuickReply(label=item["label"], value=item["value"])
+            for item in result.get("quick_replies", [])
+        ]
+
+        slots = [
+            SlotItem(label=item, value=f"Выбираю слот {item}")
+            for item in result.get("available_slots", [])
+        ]
+
+        return ChatResponse(
+            reply=reply,
+            quick_replies=quick_replies,
+            slots=slots,
+        )
+
+    except Exception as e:
+        logger.error("CHAT ERROR: %s", str(e))
+        logger.error(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=str(e))
