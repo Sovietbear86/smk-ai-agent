@@ -2,6 +2,7 @@ import os
 from dotenv import load_dotenv
 from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
+import google.auth
 
 load_dotenv()
 
@@ -13,10 +14,14 @@ SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
 
 
 def get_sheets_service():
-    credentials = Credentials.from_service_account_file(
-        SERVICE_ACCOUNT_FILE,
-        scopes=SCOPES,
-    )
+    if SERVICE_ACCOUNT_FILE:
+        credentials = Credentials.from_service_account_file(
+            SERVICE_ACCOUNT_FILE,
+            scopes=SCOPES,
+        )
+    else:
+        credentials, _ = google.auth.default(scopes=SCOPES)
+
     return build("sheets", "v4", credentials=credentials)
 
 
@@ -37,7 +42,7 @@ def read_slots():
     rows = values[1:]
 
     slots = []
-    for idx, row in enumerate(rows, start=2):  # строка 2 = первая строка данных
+    for idx, row in enumerate(rows, start=2):
         row += [""] * (len(headers) - len(row))
         slot = dict(zip(headers, row))
         slot["_row_number"] = idx
