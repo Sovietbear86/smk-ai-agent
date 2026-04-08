@@ -21,7 +21,6 @@ http://127.0.0.1:8000/docs#/default/chat_chat_post
 
 https://platform.openai.com/api-keys
 
-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
 
 5. Telegram bot
 

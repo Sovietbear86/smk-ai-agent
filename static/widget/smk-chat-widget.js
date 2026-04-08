@@ -168,6 +168,7 @@
       background: #fff;
       cursor: pointer;
       font-size: 14px;
+      text-align: left;
     }
 
     .smk-chat-slot:hover {
@@ -353,25 +354,52 @@
         }),
       });
 
-      const data = await response.json();
+      const rawText = await response.text();
+      let data = null;
+
+      try {
+        data = rawText ? JSON.parse(rawText) : null;
+      } catch (parseError) {
+        console.error("SMK widget: response is not valid JSON", {
+          status: response.status,
+          rawText,
+        });
+      }
+
       removeTyping();
 
-      addMessage("assistant", data.reply || "Извините, не удалось получить ответ.");
+      if (!response.ok) {
+        console.error("SMK widget backend error:", {
+          status: response.status,
+          statusText: response.statusText,
+          body: rawText,
+        });
 
-      if (Array.isArray(data.quick_replies)) {
+        const backendMessage =
+          data?.reply ||
+          data?.detail ||
+          "Сервис временно недоступен. Попробуйте еще раз чуть позже.";
+
+        addMessage("assistant", backendMessage);
+        return;
+      }
+
+      addMessage("assistant", data?.reply || "Извините, не удалось получить ответ.");
+
+      if (Array.isArray(data?.quick_replies)) {
         renderQuickReplies(data.quick_replies);
       }
 
-      if (Array.isArray(data.slots)) {
+      if (Array.isArray(data?.slots)) {
         renderSlots(data.slots);
       }
     } catch (error) {
       removeTyping();
       addMessage(
         "assistant",
-        "Произошла ошибка соединения. Попробуйте еще раз или свяжитесь с нами по телефону."
+        "Не удалось связаться с сервером. Проверьте соединение или попробуйте еще раз."
       );
-      console.error("SMK widget error:", error);
+      console.error("SMK widget network error:", error);
     } finally {
       isSending = false;
     }
@@ -383,7 +411,7 @@
     addMessage("assistant", config.welcomeMessage);
     renderQuickReplies([
       { label: "Настройка ECU", value: "Интересует настройка ECU" },
-      { label: "Запись на диностенд", value: "Хочу записаться на диностенд" },
+      { label: "Записаться", value: "Хочу записаться" },
       { label: "Подобрать тюнинг", value: "Помогите подобрать тюнинг" },
     ]);
   }
