@@ -4,6 +4,7 @@ from app.services.availability_service import (
     find_matching_slot,
     format_slot,
     get_free_slots,
+    infer_goal_from_message,
     is_cancel_request,
     is_slot_change_request,
     might_be_slot_preference_message,
@@ -50,8 +51,11 @@ def qualification(state):
     booking_stage = state.get("booking_stage", "not_started")
     booking_intents = {"booking", "ecu", "dyno", "afr", "diagnostics", "contacts"}
 
-    if any(token in lower_message for token in ["диагност", "afr", "настрой", "замер", "консультац", "ecu"]):
-        collected["goal"] = message
+    inferred_goal = infer_goal_from_message(message, intent)
+    if inferred_goal:
+        collected["goal"] = inferred_goal
+    if might_be_slot_preference_message(message):
+        collected["preferred_slot_request"] = message
 
     if is_cancel_request(message):
         booked_slot_id = collected.get("booked_slot_id")
@@ -93,6 +97,12 @@ def qualification(state):
             )
 
     if booking_stage == "need_bike" and collected.get("make"):
+        if collected.get("goal"):
+            return {
+                "collected_data": collected,
+                "booking_stage": "need_contact",
+                "answer": "Хорошо. Оставьте, пожалуйста, удобный контакт: телефон, Telegram или WhatsApp.",
+            }
         return {
             "collected_data": collected,
             "booking_stage": "need_goal",
@@ -107,9 +117,19 @@ def qualification(state):
         }
 
     if booking_stage == "need_contact" and collected.get("contact"):
-        slots = get_free_slots(limit=5)
+        preferred_slot_request = collected.get("preferred_slot_request")
+        slots = (
+            suggest_slots_for_preference(preferred_slot_request, limit=5)
+            if preferred_slot_request
+            else []
+        ) or get_free_slots(limit=5)
         if slots:
-            return _build_offer_response(collected, slots)
+            intro = (
+                "Под ваш запрос ближе всего подходят такие свободные окна:"
+                if preferred_slot_request
+                else None
+            )
+            return _build_offer_response(collected, slots, intro)
 
         return {
             "collected_data": collected,
@@ -184,7 +204,9 @@ def qualification(state):
             ),
         }
 
-    if intent in booking_intents:
+    should_enter_booking_funnel = intent in booking_intents or bool(collected.get("goal"))
+
+    if should_enter_booking_funnel:
         if not collected.get("make"):
             return {
                 "collected_data": collected,
@@ -206,9 +228,19 @@ def qualification(state):
                 "answer": "Оставьте, пожалуйста, удобный контакт: телефон, Telegram или WhatsApp.",
             }
 
-        slots = get_free_slots(limit=5)
+        preferred_slot_request = collected.get("preferred_slot_request")
+        slots = (
+            suggest_slots_for_preference(preferred_slot_request, limit=5)
+            if preferred_slot_request
+            else []
+        ) or get_free_slots(limit=5)
         if slots:
-            return _build_offer_response(collected, slots)
+            intro = (
+                "Под ваш запрос ближе всего подходят такие свободные окна:"
+                if preferred_slot_request
+                else None
+            )
+            return _build_offer_response(collected, slots, intro)
 
         return {
             "collected_data": collected,

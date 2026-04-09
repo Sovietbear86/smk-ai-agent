@@ -608,6 +608,60 @@ def normalize_goal(goal: str, intent: str = "") -> str:
     return goal.strip()
 
 
+def infer_goal_from_message(message: str, intent: str = "") -> str:
+    text = (message or "").strip()
+    lowered = text.lower()
+    normalized = normalize_goal(text, intent)
+
+    if normalized and normalized != text:
+        return text
+
+    service_goal_tokens = [
+        "мощност", "отклик", "провал", "тяга", "едет", "поехать",
+        "разгон", "ускор", "полка", "смесь", "ровнее", "лучше едет",
+        "убрать провалы", "поднять мощность", "улучшить отклик",
+        "настроить", "проверить", "посмотреть", "диагност", "консультац",
+    ]
+    if any(token in lowered for token in service_goal_tokens):
+        return text
+
+    if not text:
+        return ""
+
+    prompt = (
+        "Определи, содержит ли сообщение пользователя уже сформулированную цель обращения "
+        "в мотосервис по настройке, диагностике, замеру или консультации.\n"
+        "Нужно учитывать и бытовые формулировки вроде: 'хочу поднять мощность', "
+        "'хочу убрать провалы', 'нужно улучшить отклик', 'плохо едет снизу'.\n"
+        "Верни JSON с полями:\n"
+        "- has_goal: true/false\n"
+        "- goal: короткая строка с сутью запроса пользователя, если она есть\n\n"
+        f"Intent: {intent}\n"
+        f"Сообщение: {text}"
+    )
+
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4.1-mini",
+            temperature=0,
+            response_format={"type": "json_object"},
+            messages=[
+                {"role": "system", "content": "Отвечай только JSON без пояснений."},
+                {"role": "user", "content": prompt},
+            ],
+        )
+        payload = json.loads(response.choices[0].message.content or "{}")
+    except Exception as exc:
+        logger.warning("OpenAI goal extraction failed, using heuristic only: %s", exc)
+        return ""
+
+    if not isinstance(payload, dict) or not payload.get("has_goal"):
+        return ""
+
+    goal = (payload.get("goal") or "").strip()
+    return goal or text
+
+
 def build_slot_notes(collected_data: dict) -> str:
     make = (collected_data.get("make") or "").strip()
     model = (collected_data.get("model") or "").strip()
