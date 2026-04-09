@@ -51,17 +51,17 @@ def read_slots():
     return slots
 
 
-def update_slot_status(row_number: int, new_status: str):
+def update_slot_status(row_number: int, new_status: str, notes: str = ""):
     service = get_sheets_service()
     sheet = service.spreadsheets()
 
-    status_column_range = f"availability!E{row_number}"
+    status_and_notes_range = f"availability!E{row_number}:F{row_number}"
 
     result = sheet.values().update(
         spreadsheetId=SPREADSHEET_ID,
-        range=status_column_range,
+        range=status_and_notes_range,
         valueInputOption="RAW",
-        body={"values": [[new_status]]},
+        body={"values": [[new_status, notes]]},
     ).execute()
 
     return result

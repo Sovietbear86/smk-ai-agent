@@ -8,3 +8,4 @@ class AgentState(TypedDict, total=False):
     answer: str
     booking_stage: str
     collected_data: Dict[str, str]
+    test_mode: bool

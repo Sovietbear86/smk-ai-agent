@@ -1,15 +1,14 @@
-from typing import Optional
 import logging
 import traceback
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
 
 from app.db_init import init_db
 from app.graph.builder import build_graph
-from app.schemas.chat import ChatResponse, QuickReply, SlotItem
+from app.schemas.chat import ChatRequest, ChatResponse, QuickReply, SlotItem
+from app.services.health_service import check_google_sheets, check_openai, check_telegram
 from app.services.lead_service import create_lead
 from app.services.notification_service import notify_new_lead
 from app.services.session_service import get_session, save_session
@@ -36,19 +35,41 @@ async def root():
     return {"status": "ok"}
 
 
+@app.get("/health")
+def health():
+    openai_result = check_openai()
+    google_result = check_google_sheets()
+    telegram_result = check_telegram()
+
+    overall_ok = all(
+        result.get("ok")
+        for result in (openai_result, google_result, telegram_result)
+    )
+
+    return {
+        "ok": overall_ok,
+        "services": {
+            "openai": openai_result,
+            "google_sheets": google_result,
+            "telegram": telegram_result,
+        },
+    }
+
+
 init_db()
 graph = build_graph()
-
-
-class ChatRequest(BaseModel):
-    message: str
-    session_id: Optional[str] = "default"
 
 
 @app.post("/chat", response_model=ChatResponse)
 def chat(req: ChatRequest):
     try:
-        logger.info("Incoming message: session_id=%s message=%s", req.session_id, req.message)
+        logger.info(
+            "Incoming message: session_id=%s source=%s test_mode=%s message=%s",
+            req.session_id,
+            req.source,
+            req.test_mode,
+            req.message,
+        )
 
         previous = get_session(req.session_id)
         logger.info("Previous session state: %s", previous)
@@ -56,6 +77,7 @@ def chat(req: ChatRequest):
         state = {
             **previous,
             "user_message": req.message,
+            "test_mode": req.test_mode,
         }
 
         result = graph.invoke(state)
@@ -76,7 +98,7 @@ def chat(req: ChatRequest):
         saved_lead = None
         telegram_result = None
 
-        if booking_stage == "ready" and not previous.get("lead_saved"):
+        if booking_stage == "ready" and not previous.get("lead_saved") and not req.test_mode:
             logger.info("Lead is ready to be saved. collected_data=%s", collected_data)
 
             saved_lead = create_lead(req.session_id, collected_data)
@@ -86,6 +108,8 @@ def chat(req: ChatRequest):
 
             telegram_result = notify_new_lead(saved_lead)
             logger.info("Telegram notification result: %s", telegram_result)
+        elif booking_stage == "ready" and req.test_mode:
+            logger.info("Test mode enabled: skipping lead save and telegram notification")
 
         save_session(
             req.session_id,
@@ -105,6 +129,12 @@ def chat(req: ChatRequest):
                 reply = f"Записали вас на {slot}. Мы свяжемся с вами для подтверждения."
             else:
                 reply = "Заявка сохранена. Мы свяжемся с вами для подтверждения деталей."
+        elif booking_stage == "ready" and req.test_mode:
+            slot = collected_data.get("selected_slot")
+            if slot:
+                reply = f"Тестовый режим: выбрали слот {slot}, но ничего не сохранили и не отправили."
+            else:
+                reply = "Тестовый режим: данные собраны, но лид не сохранён и уведомление не отправлено."
 
         quick_replies = [
             QuickReply(label=item["label"], value=item["value"])
@@ -122,7 +152,7 @@ def chat(req: ChatRequest):
             slots=slots,
         )
 
-    except Exception as e:
-        logger.error("CHAT ERROR: %s", str(e))
+    except Exception as exc:
+        logger.error("CHAT ERROR: %s", str(exc))
         logger.error(traceback.format_exc())
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(exc))

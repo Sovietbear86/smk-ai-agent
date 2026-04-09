@@ -1,8 +1,11 @@
 .venv/
 __pycache__/
+**/__pycache__/
 *.pyc
 .env
 .env.*
+secrets/
+smk_agent.db
 db.sqlite3
 *.log
 node_modules/

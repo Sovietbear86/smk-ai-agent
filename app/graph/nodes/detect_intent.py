@@ -1,9 +1,11 @@
+import logging
 import os
 from dotenv import load_dotenv
 from openai import OpenAI
 
 load_dotenv()
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+logger = logging.getLogger(__name__)
 
 ALLOWED = {"dyno", "afr", "ecu", "diagnostics", "pricing", "booking", "contacts", "other"}
 
@@ -41,14 +43,18 @@ def detect_intent(state):
 
 Ответь только одним словом.
 """
-    response = client.chat.completions.create(
-        model="gpt-4.1-mini",
-        messages=[{"role": "user", "content": prompt}],
-        temperature=0
-    )
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4.1-mini",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0
+        )
 
-    intent = response.choices[0].message.content.strip().lower()
-    if intent not in ALLOWED:
+        intent = response.choices[0].message.content.strip().lower()
+        if intent not in ALLOWED:
+            intent = "other"
+    except Exception as exc:
+        logger.warning("OpenAI intent detection failed, using fallback intent: %s", exc)
         intent = "other"
 
     return {"intent": intent}
