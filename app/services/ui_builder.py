@@ -42,7 +42,6 @@ def enrich_result_with_ui(result: dict[str, Any]) -> dict[str, Any]:
     elif booking_stage == "ready":
         quick_replies = [
             {"label": "Изменить слот", "value": "Хочу выбрать другой слот"},
-            {"label": "Задать ещё вопрос", "value": "У меня есть еще вопрос"},
         ]
 
     return {
