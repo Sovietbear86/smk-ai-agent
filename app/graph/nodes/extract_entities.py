@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 
 BRAND_ALIASES = {
     "Honda": [
-        "honda", "хонда", "голда", "gold wing", "goldwing", "gl", "vfr", "вуфер",
+        "honda", "хонда", "голда", "gold wing", "goldwing", "gl", "vfr", "вуфер", "трансальп", "трансляп",
     ],
     "Yamaha": [
         "yamaha", "ямаха", "fjr", "фужер", "super tenere", "supertenere", "сутенер",
@@ -55,6 +55,8 @@ MODEL_HINTS = {
     "gl": "Gold Wing",
     "vfr": "VFR",
     "вуфер": "VFR",
+    "трансальп": "Transalp 650",
+    "трансляп": "Transalp 650",
     "версус": "Versys",
     "versys": "Versys",
     "fjr": "FJR1300",
@@ -80,6 +82,8 @@ MODEL_ALIASES = {
     "gl": "Gold Wing",
     "vfr": "VFR",
     "вуфер": "VFR",
+    "трансальп": "Transalp 650",
+    "трансляп": "Transalp 650",
     "версус": "Versys",
     "versys": "Versys",
     "fjr": "FJR1300",
