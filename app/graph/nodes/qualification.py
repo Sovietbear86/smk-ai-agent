@@ -66,10 +66,129 @@ def _build_offer_response(collected: dict, slots: list[dict], intro: str | None 
     }
 
 
+def _build_post_booking_closure(collected: dict) -> dict:
+    slot = collected.get("selected_slot")
+    if slot:
+        answer = (
+            f"Пожалуйста. Запись на {slot} уже сохранена. "
+            "Если захотите изменить время или оформить ещё одну запись, просто напишите об этом."
+        )
+    else:
+        answer = (
+            "Пожалуйста. Запись уже сохранена. "
+            "Если захотите изменить время или оформить ещё одну запись, просто напишите об этом."
+        )
+
+    return {
+        "collected_data": collected,
+        "booking_stage": "ready",
+        "answer": answer,
+    }
+
+
+def _is_new_booking_request(message: str, intent: str) -> bool:
+    lower_message = (message or "").lower()
+    booking_like_intent = intent in {"booking", "ecu", "dyno", "afr", "diagnostics"}
+    if not booking_like_intent:
+        return False
+
+    phrases = (
+        "еще",
+        "ещё",
+        "повторно",
+        "снова запис",
+        "новая запись",
+        "еще один слот",
+        "ещё один слот",
+        "другой мотоцикл",
+        "второй мотоцикл",
+        "еще один мотоцикл",
+        "ещё один мотоцикл",
+    )
+    return any(phrase in lower_message for phrase in phrases)
+
+
+def _mentions_another_bike(message: str) -> bool:
+    lower_message = (message or "").lower()
+    phrases = (
+        "другой мотоцикл",
+        "второй мотоцикл",
+        "еще один мотоцикл",
+        "ещё один мотоцикл",
+        "другой байк",
+        "второй байк",
+    )
+    return any(phrase in lower_message for phrase in phrases)
+
+
+def _restart_booking_after_ready(
+    previous_collected: dict,
+    current_collected: dict,
+    message: str,
+    intent: str,
+) -> dict:
+    next_collected = {
+        "contact": previous_collected.get("contact"),
+        "contact_type": previous_collected.get("contact_type"),
+        "intent": intent,
+    }
+
+    if not _mentions_another_bike(message):
+        for key in ("make", "model", "year", "goal"):
+            if previous_collected.get(key):
+                next_collected[key] = previous_collected[key]
+
+    for key in ("make", "model", "year", "goal", "contact", "contact_type", "preferred_slot_request"):
+        if current_collected.get(key):
+            next_collected[key] = current_collected[key]
+
+    if next_collected.get("make") and next_collected.get("goal"):
+        if next_collected.get("contact"):
+            preferred_slot_request = next_collected.get("preferred_slot_request")
+            slots = (
+                suggest_slots_for_preference(preferred_slot_request, limit=5)
+                if preferred_slot_request
+                else []
+            ) or get_free_slots(limit=5)
+            if slots:
+                intro = (
+                    "Понял. Оформляем ещё одну запись. Вот ближайшие подходящие окна:"
+                    if preferred_slot_request
+                    else "Понял. Оформляем ещё одну запись. Вот ближайшие свободные окна:"
+                )
+                return _build_offer_response(next_collected, slots, intro)
+
+            return {
+                "collected_data": next_collected,
+                "booking_stage": "ready",
+                "answer": "Понял. Начинаю ещё одну запись с теми же данными, но свободных слотов сейчас не вижу.",
+            }
+
+        return {
+            "collected_data": next_collected,
+            "booking_stage": "need_contact",
+            "answer": "Понял. Оформляем ещё одну запись. Оставьте, пожалуйста, удобный контакт: телефон, Telegram или WhatsApp.",
+        }
+
+    if next_collected.get("make"):
+        return {
+            "collected_data": next_collected,
+            "booking_stage": "need_goal",
+            "answer": "Понял. Оформляем ещё одну запись. Что именно хотите сделать: настройку, замер или консультацию?",
+        }
+
+    return {
+        "collected_data": next_collected,
+        "booking_stage": "need_bike",
+        "answer": "Понял. Оформляем ещё одну запись. Какой у вас мотоцикл: марка, модель и год?",
+    }
+
+
 def qualification(state):
     intent = state.get("intent", "other")
     entities = state.get("entities", {})
-    collected = state.get("collected_data", {}).copy()
+    previous_collected = state.get("collected_data", {}).copy()
+    collected = previous_collected.copy()
     test_mode = state.get("test_mode", False)
     lead_saved = bool(state.get("lead_saved", False))
 
@@ -108,6 +227,12 @@ def qualification(state):
                 "answer": "Свободных слотов прямо сейчас не вижу. Можете написать желаемую дату и время, а мы подберем ближайший вариант вручную.",
             }
         return _build_offer_response(collected, slots, "Понял. Давайте подберем другой слот без повторного заполнения заявки.")
+
+    if booking_stage == "ready" and _is_new_booking_request(message, intent):
+        return _restart_booking_after_ready(previous_collected, collected, message, intent)
+
+    if booking_stage == "ready":
+        return _build_post_booking_closure(collected)
 
     has_booking_context = bool(
         collected.get("make") and collected.get("goal") and collected.get("contact")
