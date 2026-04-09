@@ -1,7 +1,7 @@
 import logging
 import traceback
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
@@ -11,8 +11,11 @@ from app.schemas.chat import ChatRequest, ChatResponse, QuickReply, SlotItem
 from app.services.health_service import check_google_sheets, check_openai, check_telegram
 from app.services.lead_service import create_lead
 from app.services.notification_service import notify_new_lead
+from app.services.reminder_service import send_incomplete_booking_reminders, send_visit_reminders
 from app.services.session_service import get_session, save_session
+from app.services.telegram_webhook_service import process_telegram_update
 from app.services.ui_builder import enrich_result_with_ui
+from app.integrations.telegram_bot import telegram_bot
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -56,6 +59,31 @@ def health():
     }
 
 
+@app.post("/reminders/run")
+def run_reminders(older_than_minutes: int = 60):
+    return send_incomplete_booking_reminders(older_than_minutes=older_than_minutes)
+
+
+@app.post("/reminders/visits/run")
+def run_visit_reminders(window_start_hours: int = 23, window_end_hours: int = 25):
+    return send_visit_reminders(
+        window_start_hours=window_start_hours,
+        window_end_hours=window_end_hours,
+    )
+
+
+@app.post("/telegram/webhook")
+def telegram_webhook(
+    update: dict,
+    x_telegram_bot_api_secret_token: str | None = Header(default=None),
+):
+    expected_secret = telegram_bot.webhook_secret
+    if expected_secret and x_telegram_bot_api_secret_token != expected_secret:
+        raise HTTPException(status_code=403, detail="invalid telegram webhook secret")
+
+    return process_telegram_update(update)
+
+
 init_db()
 graph = build_graph()
 
@@ -97,8 +125,21 @@ def chat(req: ChatRequest):
         lead_saved = False
         saved_lead = None
         telegram_result = None
+        previous_selected_slot = (previous.get("collected_data") or {}).get("selected_slot")
+        current_selected_slot = collected_data.get("selected_slot")
+        should_save_lead = (
+            booking_stage == "ready"
+            and not req.test_mode
+            and (
+                not previous.get("lead_saved")
+                or (
+                    current_selected_slot
+                    and current_selected_slot != previous_selected_slot
+                )
+            )
+        )
 
-        if booking_stage == "ready" and not previous.get("lead_saved") and not req.test_mode:
+        if should_save_lead:
             logger.info("Lead is ready to be saved. collected_data=%s", collected_data)
 
             saved_lead = create_lead(req.session_id, collected_data)
@@ -116,7 +157,10 @@ def chat(req: ChatRequest):
             {
                 "collected_data": collected_data,
                 "booking_stage": booking_stage,
-                "lead_saved": lead_saved or previous.get("lead_saved", False),
+                "lead_saved": booking_stage == "ready" and not req.test_mode,
+                "reminder_sent_at": None if booking_stage in {"need_contact", "offer_slots"} else previous.get("reminder_sent_at"),
+                "visit_reminder_sent_at": previous.get("visit_reminder_sent_at"),
+                "clear_reminder_sent_at": booking_stage in {"need_contact", "offer_slots"},
             },
         )
         logger.info("Session saved successfully")

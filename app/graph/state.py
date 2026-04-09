@@ -9,3 +9,5 @@ class AgentState(TypedDict, total=False):
     booking_stage: str
     collected_data: Dict[str, str]
     test_mode: bool
+    available_slots: list[str]
+    quick_replies: list[dict]

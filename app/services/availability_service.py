@@ -1,92 +1,457 @@
 import logging
 import re
+from datetime import date, datetime, time, timedelta
 
 from app.integrations.google_sheets import read_slots, update_slot_status
 
+
 logger = logging.getLogger(__name__)
 
+MONTHS = {
+    "января": 1,
+    "февраля": 2,
+    "марта": 3,
+    "апреля": 4,
+    "мая": 5,
+    "июня": 6,
+    "июля": 7,
+    "августа": 8,
+    "сентября": 9,
+    "октября": 10,
+    "ноября": 11,
+    "декабря": 12,
+}
 
-def get_free_slots(limit: int = 3):
+WEEKDAYS = {
+    "понедельник": 0,
+    "вторник": 1,
+    "среда": 2,
+    "среду": 2,
+    "четверг": 3,
+    "пятница": 4,
+    "пятницу": 4,
+    "суббота": 5,
+    "субботу": 5,
+    "воскресенье": 6,
+    "воскресенье": 6,
+}
+
+TIME_BUCKETS = {
+    "утро": (6, 12),
+    "утром": (6, 12),
+    "на утро": (6, 12),
+    "день": (12, 17),
+    "днем": (12, 17),
+    "днём": (12, 17),
+    "на день": (12, 17),
+    "обед": (12, 15),
+    "в обед": (12, 15),
+    "вечер": (17, 22),
+    "вечером": (17, 22),
+    "на вечер": (17, 22),
+}
+
+CANCEL_PATTERNS = {
+    "отмена",
+    "отменить",
+    "отменяю",
+    "не надо",
+    "не нужно",
+    "передумал",
+    "передумала",
+}
+
+CHANGE_SLOT_PATTERNS = (
+    "другой слот",
+    "изменить слот",
+    "поменять слот",
+    "сменить слот",
+    "другое время",
+    "другую дату",
+    "перенести запись",
+    "перенос",
+)
+
+
+def parse_slot_date(date_value: str) -> date | None:
+    if not date_value:
+        return None
+
+    normalized = date_value.strip().replace("_", "-")
     try:
-        slots = read_slots()
+        return datetime.strptime(normalized, "%Y-%m-%d").date()
+    except ValueError:
+        return None
+
+
+def _safe_date(year: int, month: int, day: int) -> date | None:
+    try:
+        return date(year, month, day)
+    except ValueError:
+        return None
+
+
+def parse_slot_time(value: str) -> time | None:
+    if not value:
+        return None
+
+    normalized = value.strip()
+    for fmt in ("%H:%M", "%H"):
+        try:
+            return datetime.strptime(normalized, fmt).time()
+        except ValueError:
+            continue
+    return None
+
+
+def slot_start_datetime(slot: dict) -> datetime | None:
+    slot_date = parse_slot_date(str(slot.get("date", "")))
+    start_time = parse_slot_time(str(slot.get("start_time", "")))
+    if not slot_date or not start_time:
+        return None
+    return datetime.combine(slot_date, start_time)
+
+
+def format_slot(slot: dict) -> str:
+    return f"{slot.get('date')} {slot.get('start_time')}-{slot.get('end_time')}"
+
+
+def _read_all_slots() -> list[dict]:
+    try:
+        return read_slots()
     except Exception as exc:
         logger.warning("Google Sheets slots read failed, continuing without slots: %s", exc)
         return []
 
-    free_slots = [slot for slot in slots if slot.get("status", "").lower() == "free"]
+
+def get_free_slots(limit: int | None = 5) -> list[dict]:
+    free_slots = [
+        slot
+        for slot in _read_all_slots()
+        if slot.get("status", "").lower() == "free"
+    ]
+    free_slots.sort(key=lambda item: slot_start_datetime(item) or datetime.max)
+    if limit is None:
+        return free_slots
     return free_slots[:limit]
 
 
-def parse_slot_choice(user_message: str) -> int | None:
-    text = user_message.lower().strip()
-
-    if any(x in text for x in ["любой", "без разницы", "ближайший", "самый ранний", "любой вариант"]):
-        return 0
-
-    first_patterns = [
-        "1", "1.", "1)", "1-й", "1й",
-        "перв", "один", "одну", "первый", "первое", "первому", "первый вариант", "первое окно",
-    ]
-    second_patterns = [
-        "2", "2.", "2)", "2-й", "2й",
-        "втор", "два", "второй", "второе", "второму", "второй вариант", "второе окно",
-    ]
-    third_patterns = [
-        "3", "3.", "3)", "3-й", "3й",
-        "трет", "три", "третий", "третье", "третьему", "третий вариант", "третье окно",
-    ]
-
-    def contains_pattern(patterns: list[str]) -> bool:
-        for pattern in patterns:
-            if pattern in {"1", "2", "3"}:
-                if re.search(rf"\b{re.escape(pattern)}\b", text):
-                    return True
-            elif pattern in text:
-                return True
-        return False
-
-    if contains_pattern(first_patterns):
-        return 0
-    if contains_pattern(second_patterns):
-        return 1
-    if contains_pattern(third_patterns):
-        return 2
-
-    return None
-
-
-def find_matching_slot(user_message: str):
-    text = user_message.lower().strip()
-    free_slots = get_free_slots(limit=20)
-
-    if not free_slots:
+def get_slot_by_id(slot_id: str | None) -> dict | None:
+    if not slot_id:
         return None
 
-    choice_idx = parse_slot_choice(user_message)
+    for slot in _read_all_slots():
+        if slot.get("slot_id") == slot_id:
+            return slot
+    return None
+
+
+def get_slots_by_ids(slot_ids: list[str] | None) -> list[dict]:
+    if not slot_ids:
+        return []
+
+    order = {slot_id: idx for idx, slot_id in enumerate(slot_ids)}
+    slots = [slot for slot in get_free_slots(limit=None) if slot.get("slot_id") in order]
+    slots.sort(key=lambda slot: order.get(slot.get("slot_id"), 10**9))
+    return slots
+
+
+def parse_slot_choice(user_message: str, max_choice: int = 5) -> int | None:
+    text = (user_message or "").strip().lower()
+    if not text:
+        return None
+
+    if any(token in text for token in ["любой", "без разницы", "ближайший", "самый ранний", "любой вариант"]):
+        return 0
+
+    word_map = {
+        1: ("1", "1.", "1)", "перв", "один", "одну"),
+        2: ("2", "2.", "2)", "втор", "два", "две"),
+        3: ("3", "3.", "3)", "трет", "три"),
+        4: ("4", "4.", "4)", "четвер", "четыр"),
+        5: ("5", "5.", "5)", "пят",),
+    }
+
+    for number in range(1, max_choice + 1):
+        patterns = word_map.get(number, ())
+        for pattern in patterns:
+            if pattern.isdigit():
+                if re.search(rf"\b{re.escape(pattern)}\b", text):
+                    return number - 1
+            elif pattern in text:
+                return number - 1
+    return None
+
+
+def _extract_explicit_date(text: str, today: date) -> tuple[date | None, tuple[date, date] | None]:
+    if not text:
+        return None, None
+
+    lowered = text.lower()
+
+    iso_match = re.search(r"\b(20\d{2})[-_./](\d{1,2})[-_./](\d{1,2})\b", lowered)
+    if iso_match:
+        year, month, day = map(int, iso_match.groups())
+        candidate = _safe_date(year, month, day)
+        return candidate, None
+
+    ru_numeric_match = re.search(r"\b(\d{1,2})[._/-](\d{1,2})(?:[._/-](20\d{2}))?\b", lowered)
+    if ru_numeric_match:
+        day = int(ru_numeric_match.group(1))
+        month = int(ru_numeric_match.group(2))
+        year = int(ru_numeric_match.group(3) or today.year)
+        candidate = _safe_date(year, month, day)
+        if candidate is None:
+            return None, None
+        if candidate < today:
+            candidate = _safe_date(year + 1, month, day)
+        return candidate, None
+
+    text_month_match = re.search(
+        r"\b(\d{1,2}|первого|второго|третьего|четвертого|четвёртого|пятого|шестого|седьмого|восьмого|девятого|десятого|одиннадцатого|двенадцатого|тринадцатого|четырнадцатого|пятнадцатого|шестнадцатого|семнадцатого|восемнадцатого|девятнадцатого|двадцатого|двадцать первого|двадцать первого|двадцать второго|двадцать третьего|двадцать четвертого|двадцать четвёртого|двадцать пятого|двадцать шестого|двадцать седьмого|двадцать восьмого|двадцать девятого|тридцатого|тридцать первого)\s+([а-я]+)",
+        lowered,
+    )
+    if text_month_match:
+        day_token = text_month_match.group(1).replace("ё", "е")
+        month_token = text_month_match.group(2)
+        day_lookup = {
+            "первого": 1,
+            "второго": 2,
+            "третьего": 3,
+            "четвертого": 4,
+            "четвертого": 4,
+            "пятого": 5,
+            "шестого": 6,
+            "седьмого": 7,
+            "восьмого": 8,
+            "девятого": 9,
+            "десятого": 10,
+            "одиннадцатого": 11,
+            "двенадцатого": 12,
+            "тринадцатого": 13,
+            "четырнадцатого": 14,
+            "пятнадцатого": 15,
+            "шестнадцатого": 16,
+            "семнадцатого": 17,
+            "восемнадцатого": 18,
+            "девятнадцатого": 19,
+            "двадцатого": 20,
+            "двадцать первого": 21,
+            "двадцать второго": 22,
+            "двадцать третьего": 23,
+            "двадцать четвертого": 24,
+            "двадцать пятого": 25,
+            "двадцать шестого": 26,
+            "двадцать седьмого": 27,
+            "двадцать восьмого": 28,
+            "двадцать девятого": 29,
+            "тридцатого": 30,
+            "тридцать первого": 31,
+        }
+        day = day_lookup.get(day_token, int(day_token) if day_token.isdigit() else None)
+        month = MONTHS.get(month_token)
+        if day and month:
+            candidate = _safe_date(today.year, month, day)
+            if candidate is None:
+                return None, None
+            if candidate < today:
+                candidate = _safe_date(today.year + 1, month, day)
+            return candidate, None
+
+    if "сегодня" in lowered:
+        return today, None
+    if "завтра" in lowered:
+        return today + timedelta(days=1), None
+    if "послезавтра" in lowered:
+        return today + timedelta(days=2), None
+
+    for token, weekday in WEEKDAYS.items():
+        if token in lowered:
+            delta = (weekday - today.weekday()) % 7
+            candidate = today + timedelta(days=delta or 7)
+            return candidate, None
+
+    if "выходн" in lowered:
+        saturday_delta = (5 - today.weekday()) % 7
+        saturday = today + timedelta(days=saturday_delta or 7)
+        sunday = saturday + timedelta(days=1)
+        return None, (saturday, sunday)
+
+    if "майск" in lowered and "праздник" in lowered:
+        year = today.year
+        start = date(year, 5, 1)
+        end = date(year, 5, 10)
+        if end < today:
+            start = date(year + 1, 5, 1)
+            end = date(year + 1, 5, 10)
+        return None, (start, end)
+
+    return None, None
+
+
+def _extract_time_preferences(text: str) -> dict:
+    lowered = (text or "").lower()
+    result = {
+        "time_range": None,
+        "preferred_hour": None,
+        "after_hour": None,
+        "before_hour": None,
+    }
+
+    for token, bucket in TIME_BUCKETS.items():
+        if token in lowered:
+            result["time_range"] = bucket
+            break
+
+    exact_time_match = re.search(r"\b(?:в|к)\s*(\d{1,2})(?::(\d{2}))?\b", lowered)
+    if exact_time_match:
+        result["preferred_hour"] = int(exact_time_match.group(1))
+
+    after_match = re.search(r"\bпосле\s*(\d{1,2})(?::(\d{2}))?\b", lowered)
+    if after_match:
+        result["after_hour"] = int(after_match.group(1))
+
+    before_match = re.search(r"\bдо\s*(\d{1,2})(?::(\d{2}))?\b", lowered)
+    if before_match:
+        result["before_hour"] = int(before_match.group(1))
+
+    return result
+
+
+def parse_slot_preference(user_message: str, today: date | None = None) -> dict:
+    today = today or date.today()
+    text = (user_message or "").strip()
+    exact_date, date_range = _extract_explicit_date(text, today)
+    time_preferences = _extract_time_preferences(text)
+
+    return {
+        "text": text,
+        "exact_date": exact_date,
+        "date_range": date_range,
+        **time_preferences,
+    }
+
+
+def has_meaningful_slot_preference(preference: dict) -> bool:
+    return any(
+        preference.get(key) is not None
+        for key in ("exact_date", "date_range", "time_range", "preferred_hour", "after_hour", "before_hour")
+    )
+
+
+def _matches_direct_slot_reference(text: str, slot: dict) -> bool:
+    lowered = text.lower().strip()
+    if not lowered:
+        return False
+
+    candidates = {
+        format_slot(slot).lower(),
+        format_slot(slot).lower().replace("_", "-"),
+        f"{slot.get('date')} {slot.get('start_time')} - {slot.get('end_time')}".lower(),
+        str(slot.get("slot_id", "")).lower(),
+        f"{slot.get('date')}".lower(),
+    }
+    start_time = str(slot.get("start_time", "")).lower()
+    end_time = str(slot.get("end_time", "")).lower()
+    if start_time and end_time and start_time in lowered and end_time in lowered:
+        return True
+    return any(candidate and candidate in lowered for candidate in candidates)
+
+
+def score_slot_against_preference(slot: dict, preference: dict, now: datetime | None = None) -> float:
+    now = now or datetime.now()
+    slot_dt = slot_start_datetime(slot)
+    if slot_dt is None:
+        return float("inf")
+
+    score = max((slot_dt - now).total_seconds() / 3600, 0) / 24
+
+    exact_date = preference.get("exact_date")
+    date_range = preference.get("date_range")
+    time_range = preference.get("time_range")
+    preferred_hour = preference.get("preferred_hour")
+    after_hour = preference.get("after_hour")
+    before_hour = preference.get("before_hour")
+
+    slot_date = slot_dt.date()
+    slot_hour = slot_dt.hour
+
+    if exact_date:
+        score += abs((slot_date - exact_date).days) * 10
+
+    if date_range:
+        start, end = date_range
+        if slot_date < start:
+            score += (start - slot_date).days * 10
+        elif slot_date > end:
+            score += (slot_date - end).days * 10
+
+    if time_range:
+        start_hour, end_hour = time_range
+        if start_hour <= slot_hour < end_hour:
+            score -= 1
+        else:
+            score += min(abs(slot_hour - start_hour), abs(slot_hour - end_hour)) * 2
+
+    if preferred_hour is not None:
+        score += abs(slot_hour - preferred_hour) * 1.5
+
+    if after_hour is not None and slot_hour < after_hour:
+        score += (after_hour - slot_hour) * 2
+
+    if before_hour is not None and slot_hour > before_hour:
+        score += (slot_hour - before_hour) * 2
+
+    return score
+
+
+def suggest_slots_for_preference(
+    user_message: str,
+    limit: int = 5,
+    offered_slot_ids: list[str] | None = None,
+) -> list[dict]:
+    slots = get_slots_by_ids(offered_slot_ids) or get_free_slots(limit=None)
+    if not slots:
+        return []
+
+    preference = parse_slot_preference(user_message)
+    if not has_meaningful_slot_preference(preference):
+        return []
+
+    scored = [
+        (score_slot_against_preference(slot, preference), slot)
+        for slot in slots
+    ]
+    scored.sort(key=lambda item: item[0])
+    return [slot for _, slot in scored[:limit]]
+
+
+def find_matching_slot(user_message: str, offered_slot_ids: list[str] | None = None) -> dict | None:
+    slots = get_slots_by_ids(offered_slot_ids) or get_free_slots(limit=None)
+    if not slots:
+        return None
+
+    choice_idx = parse_slot_choice(user_message, max_choice=max(len(slots), 5))
     if choice_idx is not None:
-        if 0 <= choice_idx < len(free_slots):
-            return free_slots[choice_idx]
-        return free_slots[-1]
+        if 0 <= choice_idx < len(slots):
+            return slots[choice_idx]
+        return slots[-1]
 
-    for slot in free_slots:
-        candidate = f"{slot.get('date')} {slot.get('start_time')}-{slot.get('end_time')}".lower()
-        candidate_alt = f"{slot.get('date')} {slot.get('start_time')} - {slot.get('end_time')}".lower()
-
-        if candidate in text or text in candidate:
-            return slot
-        if candidate_alt in text or text in candidate_alt:
-            return slot
-
-    for slot in free_slots:
-        start_time = str(slot.get("start_time", "")).lower()
-        end_time = str(slot.get("end_time", "")).lower()
-
-        if start_time and start_time in text:
-            return slot
-        if end_time and end_time in text:
+    for slot in slots:
+        if _matches_direct_slot_reference(user_message, slot):
             return slot
 
     return None
+
+
+def is_slot_change_request(user_message: str) -> bool:
+    lowered = (user_message or "").strip().lower()
+    return any(pattern in lowered for pattern in CHANGE_SLOT_PATTERNS)
+
+
+def is_cancel_request(user_message: str) -> bool:
+    lowered = (user_message or "").strip().lower()
+    return lowered in CANCEL_PATTERNS
 
 
 def normalize_goal(goal: str, intent: str = "") -> str:
@@ -148,7 +513,7 @@ def build_slot_notes(collected_data: dict) -> str:
     return "; ".join(notes_parts)
 
 
-def book_slot(slot: dict, collected_data: dict | None = None):
+def book_slot(slot: dict, collected_data: dict | None = None) -> dict:
     row_number = slot.get("_row_number")
     if not row_number:
         return {"ok": False, "error": "row number not found"}
@@ -160,4 +525,21 @@ def book_slot(slot: dict, collected_data: dict | None = None):
         return {"ok": True, "update_result": update_result, "notes": notes}
     except Exception as exc:
         logger.warning("Google Sheets slot booking failed: %s", exc)
+        return {"ok": False, "error": str(exc)}
+
+
+def release_slot(slot_id: str | None) -> dict:
+    slot = get_slot_by_id(slot_id)
+    if not slot:
+        return {"ok": False, "error": "slot not found"}
+
+    row_number = slot.get("_row_number")
+    if not row_number:
+        return {"ok": False, "error": "row number not found"}
+
+    try:
+        update_result = update_slot_status(row_number, "free", "")
+        return {"ok": True, "update_result": update_result}
+    except Exception as exc:
+        logger.warning("Google Sheets slot release failed: %s", exc)
         return {"ok": False, "error": str(exc)}
