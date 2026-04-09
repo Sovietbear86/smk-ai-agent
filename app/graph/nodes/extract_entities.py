@@ -1,4 +1,15 @@
+import json
+import logging
+import os
 import re
+
+from dotenv import load_dotenv
+from openai import OpenAI
+
+
+load_dotenv()
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+logger = logging.getLogger(__name__)
 
 
 BRAND_ALIASES = {
@@ -87,6 +98,9 @@ MODEL_ALIASES = {
 }
 
 
+KNOWN_MAKES = set(BRAND_ALIASES.keys())
+
+
 def _find_make_and_alias(lower_text: str):
     for make, aliases in BRAND_ALIASES.items():
         for alias in aliases:
@@ -140,6 +154,78 @@ def _normalize_model(model: str | None) -> str | None:
     return model
 
 
+def _looks_like_bike_message(text: str, entities: dict[str, str]) -> bool:
+    lower_text = (text or "").lower()
+    if entities.get("make") or entities.get("model"):
+        return True
+
+    if re.search(r"\b(19\d{2}|20\d{2})\b", text):
+        return True
+
+    bike_words = {
+        "мото", "мотоцикл", "байк", "скутер", "touring", "adventure",
+        "sport", "эндуро", "турэндуро", "спорттур", "спортбайк",
+        "honda", "yamaha", "suzuki", "kawasaki", "bmw", "ducati", "ktm",
+        "triumph", "aprilia", "harley", "indian", "хонда", "ямаха",
+        "сузуки", "кавасаки", "бмв", "дукати", "ктм", "триумф", "априлия",
+        "харлей", "индиан", "голда", "гусь", "гантеля", "сутенер",
+        "версус", "кавас", "фужер", "мультистрада", "мультистрадания",
+        "вуфер",
+    }
+    return any(word in lower_text for word in bike_words)
+
+
+def _extract_entities_with_ai(text: str) -> dict[str, str]:
+    prompt = f"""
+Извлеки из сообщения пользователя данные о мотоцикле.
+
+Верни только JSON-объект без пояснений.
+Допустимые поля:
+- make: официальная марка латиницей, например Honda, Yamaha, BMW
+- model: модель в нормализованном виде, например VFR1200X, Super Tenere, GS
+- year: год, если он явно указан
+
+Если поле не удалось определить, не включай его.
+Не придумывай данные.
+
+Сообщение: {text}
+"""
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4.1-mini",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0,
+            response_format={"type": "json_object"},
+        )
+        payload = json.loads(response.choices[0].message.content)
+    except Exception as exc:
+        logger.warning("AI entity extraction failed: %s", exc)
+        return {}
+
+    if not isinstance(payload, dict):
+        return {}
+
+    extracted: dict[str, str] = {}
+
+    make = payload.get("make")
+    if isinstance(make, str):
+        normalized_make = make.strip()
+        if normalized_make in KNOWN_MAKES:
+            extracted["make"] = normalized_make
+
+    model = payload.get("model")
+    if isinstance(model, str) and model.strip():
+        extracted["model"] = _normalize_model(model.strip())
+
+    year = payload.get("year")
+    if isinstance(year, str) and re.fullmatch(r"(19\d{2}|20\d{2})", year.strip()):
+        extracted["year"] = year.strip()
+    elif isinstance(year, int) and 1900 <= year <= 2099:
+        extracted["year"] = str(year)
+
+    return extracted
+
+
 def extract_entities(state):
     text = state["user_message"]
     lower_text = text.lower()
@@ -157,6 +243,12 @@ def extract_entities(state):
     model = _extract_model(text, lower_text, matched_alias)
     if model:
         entities["model"] = _normalize_model(model)
+
+    if _looks_like_bike_message(text, entities) and (not entities.get("make") or not entities.get("model")):
+        ai_entities = _extract_entities_with_ai(text)
+        for key in ("make", "model", "year"):
+            if ai_entities.get(key) and not entities.get(key):
+                entities[key] = ai_entities[key]
 
     phone_match = re.search(r"(\+?\d[\d\-\s]{8,}\d)", text)
     if phone_match:
