@@ -3,7 +3,7 @@ import re
 
 BRAND_ALIASES = {
     "Honda": [
-        "honda", "хонда", "голда", "gold wing", "goldwing", "gl",
+        "honda", "хонда", "голда", "gold wing", "goldwing", "gl", "vfr", "вуфер",
     ],
     "Yamaha": [
         "yamaha", "ямаха", "fjr", "фужер", "super tenere", "supertenere", "сутенер",
@@ -42,6 +42,8 @@ MODEL_HINTS = {
     "gold wing": "Gold Wing",
     "goldwing": "Gold Wing",
     "gl": "Gold Wing",
+    "vfr": "VFR",
+    "вуфер": "VFR",
     "версус": "Versys",
     "versys": "Versys",
     "fjr": "FJR1300",
@@ -65,6 +67,8 @@ MODEL_ALIASES = {
     "goldwing": "Gold Wing",
     "gold wing": "Gold Wing",
     "gl": "Gold Wing",
+    "vfr": "VFR",
+    "вуфер": "VFR",
     "версус": "Versys",
     "versys": "Versys",
     "fjr": "FJR1300",

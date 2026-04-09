@@ -13,6 +13,38 @@ from app.services.availability_service import (
 )
 
 
+def _looks_like_bike_description(message: str, entities: dict) -> bool:
+    lower_message = (message or "").lower()
+    tokens = [token for token in lower_message.replace(",", " ").split() if token]
+
+    if entities.get("make") or entities.get("model"):
+        return True
+
+    if entities.get("year") and tokens:
+        return True
+
+    if any(char.isdigit() for char in lower_message):
+        modelish_tokens = [
+            token
+            for token in tokens
+            if any(char.isdigit() for char in token)
+            and len(token) >= 3
+            and "@" not in token
+        ]
+        if modelish_tokens:
+            return True
+
+    bike_words = {
+        "мото", "мотоцикл", "байк", "honda", "yamaha", "suzuki", "kawasaki",
+        "bmw", "ducati", "ktm", "triumph", "aprilia", "harley", "indian",
+        "хонда", "ямаха", "сузуки", "кавасаки", "бмв", "дукати", "ктм",
+        "триумф", "априлия", "харлей", "индиан", "вуфер", "гусь", "гантеля",
+        "сутенер", "голда", "версус", "кавас", "фужер", "мультистрада",
+        "мультистрадания",
+    }
+    return any(word in lower_message for word in bike_words)
+
+
 def _build_offer_response(collected: dict, slots: list[dict], intro: str | None = None) -> dict:
     slot_labels = [format_slot(slot) for slot in slots]
     lines = [f"{idx}) {label}" for idx, label in enumerate(slot_labels, start=1)]
@@ -107,6 +139,17 @@ def qualification(state):
             "collected_data": collected,
             "booking_stage": "need_goal",
             "answer": "Понял. Что именно хотите сделать: настройку, замер или консультацию?",
+        }
+
+    if booking_stage == "need_bike" and _looks_like_bike_description(message, entities):
+        return {
+            "collected_data": collected,
+            "booking_stage": "need_bike",
+            "answer": (
+                "Похоже, речь о модели мотоцикла, но я не смог точно распознать марку. "
+                "Напишите, пожалуйста, марку и модель чуть подробнее, например: "
+                "Honda VFR1200X 2016 или Yamaha FJR1300 2014."
+            ),
         }
 
     if booking_stage == "need_goal" and collected.get("goal"):
