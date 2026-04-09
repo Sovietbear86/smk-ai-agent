@@ -1,11 +1,18 @@
 import logging
+import os
 import re
+import json
 from datetime import date, datetime, time, timedelta
+
+from dotenv import load_dotenv
+from openai import OpenAI
 
 from app.integrations.google_sheets import read_slots, update_slot_status
 
 
+load_dotenv()
 logger = logging.getLogger(__name__)
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 MONTHS = {
     "января": 1,
@@ -72,6 +79,14 @@ CHANGE_SLOT_PATTERNS = (
     "перенос",
 )
 
+SLOT_PREFERENCE_TOKENS = (
+    "сегодня", "завтра", "послезавтра", "понедель", "вторник", "сред", "четверг",
+    "пятниц", "суббот", "воскрес", "утр", "дн", "вечер", "обед", "после",
+    "до ", "первая половина", "вторая половина", "выходн", "майск", "праздник",
+    "час", "январ", "феврал", "март", "апрел",
+    "мая", "июн", "июл", "август", "сентябр", "октябр", "ноябр", "декабр",
+)
+
 
 def parse_slot_date(date_value: str) -> date | None:
     if not date_value:
@@ -116,6 +131,26 @@ def format_slot(slot: dict) -> str:
     return f"{slot.get('date')} {slot.get('start_time')}-{slot.get('end_time')}"
 
 
+def _format_slot_for_ai(slot: dict) -> str:
+    slot_dt = slot_start_datetime(slot)
+    weekday = ""
+    if slot_dt:
+        weekday_names = [
+            "понедельник",
+            "вторник",
+            "среда",
+            "четверг",
+            "пятница",
+            "суббота",
+            "воскресенье",
+        ]
+        weekday = weekday_names[slot_dt.weekday()]
+    return (
+        f"{slot.get('slot_id')}: {format_slot(slot)}"
+        + (f" ({weekday})" if weekday else "")
+    )
+
+
 def _read_all_slots() -> list[dict]:
     try:
         return read_slots()
@@ -154,6 +189,10 @@ def get_slots_by_ids(slot_ids: list[str] | None) -> list[dict]:
     slots = [slot for slot in get_free_slots(limit=None) if slot.get("slot_id") in order]
     slots.sort(key=lambda slot: order.get(slot.get("slot_id"), 10**9))
     return slots
+
+
+def get_slot_candidates(offered_slot_ids: list[str] | None = None) -> list[dict]:
+    return get_slots_by_ids(offered_slot_ids) or get_free_slots(limit=None)
 
 
 def parse_slot_choice(user_message: str, max_choice: int = 5) -> int | None:
@@ -332,6 +371,24 @@ def parse_slot_preference(user_message: str, today: date | None = None) -> dict:
     }
 
 
+def might_be_slot_preference_message(user_message: str) -> bool:
+    text = (user_message or "").strip().lower()
+    if not text:
+        return False
+
+    if parse_slot_choice(text, max_choice=5) is not None:
+        return True
+
+    if re.search(r"\b\d{1,2}[:.]\d{2}\b", text):
+        return True
+    if re.search(r"\b\d{1,2}[./-]\d{1,2}\b", text):
+        return True
+    if re.search(r"\b20\d{2}[./_-]\d{1,2}[./_-]\d{1,2}\b", text):
+        return True
+
+    return any(token in text for token in SLOT_PREFERENCE_TOKENS)
+
+
 def has_meaningful_slot_preference(preference: dict) -> bool:
     return any(
         preference.get(key) is not None
@@ -410,9 +467,13 @@ def suggest_slots_for_preference(
     limit: int = 5,
     offered_slot_ids: list[str] | None = None,
 ) -> list[dict]:
-    slots = get_slots_by_ids(offered_slot_ids) or get_free_slots(limit=None)
+    slots = get_slot_candidates(offered_slot_ids)
     if not slots:
         return []
+
+    ai_slots = suggest_slots_with_ai(user_message, slots, limit=limit)
+    if ai_slots:
+        return ai_slots
 
     preference = parse_slot_preference(user_message)
     if not has_meaningful_slot_preference(preference):
@@ -426,8 +487,65 @@ def suggest_slots_for_preference(
     return [slot for _, slot in scored[:limit]]
 
 
+def suggest_slots_with_ai(
+    user_message: str,
+    slots: list[dict],
+    limit: int = 5,
+) -> list[dict]:
+    if not user_message or not slots:
+        return []
+
+    prompt = (
+        "Ты помогаешь подобрать слот записи в мотосервис.\n"
+        "Пользователь уже находится на этапе выбора времени.\n"
+        "Нужно понять, описывает ли его сообщение желаемую дату или время, даже если формулировка разговорная.\n"
+        "Примеры: 'суббота, вторая половина дня', 'вторник, после обеда', 'на выходные', 'завтра вечером'.\n"
+        "Верни JSON c полями:\n"
+        "- matched: true/false\n"
+        f"- slot_ids: массив максимум из {limit} slot_id в порядке убывания релевантности\n"
+        "- clarification: короткая строка, если не удалось распознать запрос\n\n"
+        f"Сообщение пользователя: {user_message}\n\n"
+        "Доступные слоты:\n"
+        + "\n".join(_format_slot_for_ai(slot) for slot in slots)
+    )
+
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4.1-mini",
+            temperature=0,
+            response_format={"type": "json_object"},
+            messages=[
+                {
+                    "role": "system",
+                    "content": "Отвечай только JSON без пояснений.",
+                },
+                {
+                    "role": "user",
+                    "content": prompt,
+                },
+            ],
+        )
+        raw_content = response.choices[0].message.content or "{}"
+        payload = json.loads(raw_content)
+    except Exception as exc:
+        logger.warning("OpenAI slot ranking failed, using heuristic ranking: %s", exc)
+        return []
+
+    if not isinstance(payload, dict) or not payload.get("matched"):
+        return []
+
+    requested_ids = payload.get("slot_ids") or []
+    if not isinstance(requested_ids, list):
+        return []
+
+    order = {slot_id: idx for idx, slot_id in enumerate(requested_ids[:limit])}
+    matched_slots = [slot for slot in slots if slot.get("slot_id") in order]
+    matched_slots.sort(key=lambda slot: order.get(slot.get("slot_id"), 10**9))
+    return matched_slots[:limit]
+
+
 def find_matching_slot(user_message: str, offered_slot_ids: list[str] | None = None) -> dict | None:
-    slots = get_slots_by_ids(offered_slot_ids) or get_free_slots(limit=None)
+    slots = get_slot_candidates(offered_slot_ids)
     if not slots:
         return None
 

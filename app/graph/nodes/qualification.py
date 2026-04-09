@@ -6,6 +6,7 @@ from app.services.availability_service import (
     get_free_slots,
     is_cancel_request,
     is_slot_change_request,
+    might_be_slot_preference_message,
     release_slot,
     suggest_slots_for_preference,
 )
@@ -47,6 +48,7 @@ def qualification(state):
     message = state.get("user_message", "").strip()
     lower_message = message.lower()
     booking_stage = state.get("booking_stage", "not_started")
+    booking_intents = {"booking", "ecu", "dyno", "afr", "diagnostics", "contacts"}
 
     if any(token in lower_message for token in ["диагност", "afr", "настрой", "замер", "консультац", "ecu"]):
         collected["goal"] = message
@@ -70,6 +72,25 @@ def qualification(state):
                 "answer": "Свободных слотов прямо сейчас не вижу. Можете написать желаемую дату и время, а мы подберем ближайший вариант вручную.",
             }
         return _build_offer_response(collected, slots, "Понял. Давайте подберем другой слот без повторного заполнения заявки.")
+
+    has_booking_context = bool(
+        collected.get("make") and collected.get("goal") and collected.get("contact")
+    )
+
+    if has_booking_context and might_be_slot_preference_message(message):
+        offered_slot_ids = collected.get("offered_slot_ids") or []
+
+        if booking_stage != "offer_slots":
+            suggested_slots = suggest_slots_for_preference(
+                message,
+                limit=5,
+                offered_slot_ids=offered_slot_ids,
+            ) or get_free_slots(limit=5)
+            return _build_offer_response(
+                collected,
+                suggested_slots,
+                "Понял. Продолжаем подбор времени без повторного заполнения заявки.",
+            )
 
     if booking_stage == "need_bike" and collected.get("make"):
         return {
@@ -163,7 +184,7 @@ def qualification(state):
             ),
         }
 
-    if intent == "booking":
+    if intent in booking_intents:
         if not collected.get("make"):
             return {
                 "collected_data": collected,
