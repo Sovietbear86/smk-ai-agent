@@ -574,7 +574,10 @@ def qualification(state):
             if collected.get("contact"):
                 return _finalize_consultation_request(collected, message, test_mode)
             return {
-                "collected_data": collected,
+                "collected_data": {
+                    **collected,
+                    "pending_callback_request": True,
+                },
                 "booking_stage": "need_contact",
                 "answer": "Понял. Оставьте, пожалуйста, удобный контакт, и мы свяжемся с вами в ближайшее время.",
             }
@@ -697,7 +700,10 @@ def qualification(state):
         if _is_consultation_goal(collected):
             if not collected.get("contact"):
                 return {
-                    "collected_data": collected,
+                    "collected_data": {
+                        **collected,
+                        "pending_callback_request": True,
+                    },
                     "booking_stage": "need_contact",
                     "answer": "Оставьте, пожалуйста, удобный контакт, и мы свяжемся с вами в ближайшее время.",
                 }
