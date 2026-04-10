@@ -11,6 +11,8 @@ def format_lead_message(lead: dict) -> str:
     contact = data.get("contact", "-")
     selected_slot = data.get("selected_slot", "-")
     booked_slot_id = data.get("booked_slot_id", "-")
+    if data.get("callback_requested"):
+        selected_slot = "TBD/"
 
     text = (
         "Новая заявка с сайта\n\n"

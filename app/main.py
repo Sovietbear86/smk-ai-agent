@@ -7,6 +7,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app.db_init import init_db
 from app.graph.builder import build_graph
+from app.integrations.telegram_bot import telegram_bot
 from app.schemas.chat import ChatRequest, ChatResponse, QuickReply, SlotItem
 from app.services.health_service import check_google_sheets, check_openai, check_telegram
 from app.services.lead_service import create_lead
@@ -15,7 +16,6 @@ from app.services.reminder_service import send_incomplete_booking_reminders, sen
 from app.services.session_service import get_session, save_session
 from app.services.telegram_webhook_service import process_telegram_update
 from app.services.ui_builder import enrich_result_with_ui
-from app.integrations.telegram_bot import telegram_bot
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -168,17 +168,23 @@ def chat(req: ChatRequest):
         reply = result.get("answer", "Извините, не удалось сформировать ответ.")
 
         if lead_saved:
-            slot = collected_data.get("selected_slot")
-            if slot:
-                reply = f"Записали вас на {slot}. Мы свяжемся с вами для подтверждения."
+            if collected_data.get("callback_requested"):
+                reply = "Спасибо. Заявка принята, мы свяжемся с вами в ближайшее время."
             else:
-                reply = "Заявка сохранена. Мы свяжемся с вами для подтверждения деталей."
+                slot = collected_data.get("selected_slot")
+                if slot:
+                    reply = f"Записали вас на {slot}. Мы свяжемся с вами для подтверждения."
+                else:
+                    reply = "Заявка сохранена. Мы свяжемся с вами для подтверждения деталей."
         elif booking_stage == "ready" and req.test_mode:
-            slot = collected_data.get("selected_slot")
-            if slot:
-                reply = f"Тестовый режим: выбрали слот {slot}, но ничего не сохранили и не отправили."
+            if collected_data.get("callback_requested"):
+                reply = "Тестовый режим: заявка на консультацию собрана, но ничего не сохранено и не отправлено."
             else:
-                reply = "Тестовый режим: данные собраны, но лид не сохранён и уведомление не отправлено."
+                slot = collected_data.get("selected_slot")
+                if slot:
+                    reply = f"Тестовый режим: выбрали слот {slot}, но ничего не сохранили и не отправили."
+                else:
+                    reply = "Тестовый режим: данные собраны, но лид не сохранён и уведомление не отправлено."
 
         quick_replies = [
             QuickReply(label=item["label"], value=item["value"])

@@ -24,6 +24,7 @@ def enrich_result_with_ui(result: dict[str, Any]) -> dict[str, Any]:
             {"label": "Прошивка ECU", "value": "Нужна прошивка ECU"},
             {"label": "Замер на стенде", "value": "Нужен замер на диностенде"},
             {"label": "Подобрать тюнинг", "value": "Помогите подобрать тюнинг"},
+            {"label": "Консультация", "value": "Нужна консультация"},
         ]
 
     elif booking_stage in {"collect_bike", "collect_bike_info"} and not bike_brand:

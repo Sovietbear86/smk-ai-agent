@@ -3,11 +3,12 @@ import os
 import re
 import json
 from datetime import date, datetime, time, timedelta
+from zoneinfo import ZoneInfo
 
 from dotenv import load_dotenv
 from openai import OpenAI
 
-from app.integrations.google_sheets import read_slots, update_slot_status
+from app.integrations.google_sheets import append_slot, read_slots, update_slot_status
 
 
 load_dotenv()
@@ -85,6 +86,26 @@ SLOT_PREFERENCE_TOKENS = (
     "до ", "первая половина", "вторая половина", "выходн", "майск", "праздник",
     "час", "январ", "феврал", "март", "апрел",
     "мая", "июн", "июл", "август", "сентябр", "октябр", "ноябр", "декабр",
+)
+
+CONSULTATION_REQUEST_PATTERNS = (
+    "консультац",
+    "перезвоните",
+    "перезвони",
+    "свяжитесь",
+    "свяжитесь со мной",
+    "свяжитесь со мной позже",
+    "свяжется специалист",
+    "позже",
+    "пока не готов",
+    "пока не готов к записи",
+    "не готов к записи",
+    "сначала нужно получить ответ",
+    "сначала хочу задать вопрос",
+    "сначала хочу получить ответ",
+    "нужно получить ответ на вопрос",
+    "есть вопрос",
+    "есть пара вопросов",
 )
 
 
@@ -662,13 +683,47 @@ def infer_goal_from_message(message: str, intent: str = "") -> str:
     return goal or text
 
 
-def build_slot_notes(collected_data: dict) -> str:
+def is_consultation_request(user_message: str) -> bool:
+    lowered = (user_message or "").strip().lower()
+    if not lowered:
+        return False
+    return any(pattern in lowered for pattern in CONSULTATION_REQUEST_PATTERNS)
+
+
+def build_consultation_goal(message: str, collected_data: dict) -> str:
+    raw_message = (message or "").strip()
+    previous_goal = (collected_data.get("goal") or "").strip()
+    inferred_goal = infer_goal_from_message(raw_message, collected_data.get("intent") or "")
+    normalized_inferred = normalize_goal(inferred_goal, collected_data.get("intent") or "")
+
+    if inferred_goal and normalized_inferred != "консультация":
+        return inferred_goal
+
+    if previous_goal:
+        normalized_previous = normalize_goal(previous_goal, collected_data.get("intent") or "")
+        if normalized_previous == "консультация":
+            return previous_goal
+        return f"консультация по вопросу: {previous_goal}"
+
+    if raw_message and is_consultation_request(raw_message):
+        return "консультация"
+
+    return inferred_goal or "консультация"
+
+
+def build_slot_notes(collected_data: dict, preserve_goal_detail: bool = False) -> str:
     make = (collected_data.get("make") or "").strip()
     model = (collected_data.get("model") or "").strip()
     year = (collected_data.get("year") or "").strip()
-    goal = normalize_goal(
-        collected_data.get("goal") or "",
+    raw_goal = (collected_data.get("goal") or "").strip()
+    normalized_goal = normalize_goal(
+        raw_goal,
         collected_data.get("intent") or "",
+    )
+    goal = (
+        raw_goal
+        if preserve_goal_detail and raw_goal
+        else normalized_goal
     )
     contact = (collected_data.get("contact") or "").strip()
 
@@ -683,6 +738,55 @@ def build_slot_notes(collected_data: dict) -> str:
         notes_parts.append(f"contact={contact}")
 
     return "; ".join(notes_parts)
+
+
+def create_consultation_request(collected_data: dict, message: str = "") -> dict:
+    now = datetime.now(ZoneInfo("Europe/Moscow"))
+    existing_slots = _read_all_slots()
+
+    max_slot_number = 0
+    slot_width = 4
+    for slot in existing_slots:
+        slot_id = str(slot.get("slot_id") or "").strip()
+        match = re.fullmatch(r"slot_(\d+)", slot_id, re.IGNORECASE)
+        if not match:
+            continue
+        number_text = match.group(1)
+        max_slot_number = max(max_slot_number, int(number_text))
+        slot_width = max(slot_width, len(number_text))
+
+    next_slot_number = max_slot_number + 1
+    slot_id = f"slot_{next_slot_number:0{slot_width}d}"
+
+    callback_data = {
+        **collected_data,
+        "goal": build_consultation_goal(message, collected_data),
+    }
+    notes = build_slot_notes(callback_data, preserve_goal_detail=True)
+
+    try:
+        append_result = append_slot(
+            [
+                slot_id,
+                now.strftime("%Y_%m_%d"),
+                now.strftime("%H:%M"),
+                "",
+                "need info",
+                notes,
+            ],
+            highlight_yellow=True,
+        )
+        return {
+            "ok": True,
+            "slot_id": slot_id,
+            "row_number": append_result.get("row_number"),
+            "notes": notes,
+            "selected_slot": "TBD/",
+            "goal": callback_data.get("goal"),
+        }
+    except Exception as exc:
+        logger.warning("Google Sheets consultation append failed: %s", exc)
+        return {"ok": False, "error": str(exc)}
 
 
 def book_slot(slot: dict, collected_data: dict | None = None) -> dict:

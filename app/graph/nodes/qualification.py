@@ -2,14 +2,18 @@ import re
 
 from app.services.availability_service import (
     book_slot,
+    build_consultation_goal,
     build_slot_notes,
+    create_consultation_request,
     find_matching_slot,
     format_slot,
     get_free_slots,
     infer_goal_from_message,
     is_cancel_request,
+    is_consultation_request,
     is_slot_change_request,
     might_be_slot_preference_message,
+    normalize_goal,
     release_slot,
     suggest_slots_for_preference,
 )
@@ -65,10 +69,24 @@ def _looks_like_contact_message(message: str, entities: dict) -> bool:
     return len(digits_only) >= 10
 
 
+def _contains_service_goal_signal(message: str, intent: str = "") -> bool:
+    lowered = (message or "").strip().lower()
+
+    service_tokens = (
+        "настрой", "ecu", "прошив", "flash", "калибров", "карта",
+        "замер", "стенд", "дино", "dyno", "afr", "смесь",
+        "консультац", "подобрать", "посовет", "понять", "что делать",
+        "диагност", "мощност", "отклик", "провал", "тяга", "разгон",
+        "ускор", "убрать провалы", "поднять мощность", "улучшить отклик",
+    )
+    return any(token in lowered for token in service_tokens)
+
+
 def _should_update_goal(
     booking_stage: str,
     message: str,
     entities: dict,
+    intent: str = "",
 ) -> bool:
     if booking_stage in {"offer_slots", "ready", "cancelled"}:
         return False
@@ -76,7 +94,13 @@ def _should_update_goal(
     if _looks_like_contact_message(message, entities):
         return False
 
-    if might_be_slot_preference_message(message):
+    has_service_signal = _contains_service_goal_signal(message, intent)
+    looks_like_bike = _looks_like_bike_description(message, entities)
+
+    if looks_like_bike and not has_service_signal:
+        return False
+
+    if might_be_slot_preference_message(message) and not has_service_signal:
         return False
 
     return True
@@ -120,6 +144,58 @@ def _build_post_booking_closure(collected: dict) -> dict:
         "collected_data": collected,
         "booking_stage": "ready",
         "answer": answer,
+    }
+
+
+def _should_offer_consultation_callback(booking_stage: str, message: str) -> bool:
+    if booking_stage in {"ready", "cancelled"}:
+        return False
+    return is_consultation_request(message)
+
+
+def _is_consultation_goal(collected: dict) -> bool:
+    goal = (collected.get("goal") or "").strip()
+    intent = collected.get("intent") or ""
+    return is_consultation_request(goal) or normalize_goal(goal, intent) == "консультация"
+
+
+def _finalize_consultation_request(collected: dict, message: str, test_mode: bool) -> dict:
+    existing_goal = (collected.get("goal") or "").strip()
+    updated = {
+        **collected,
+        "goal": existing_goal or build_consultation_goal(message, collected),
+    }
+
+    if test_mode:
+        updated["selected_slot"] = "TBD/"
+        updated["booked_slot_id"] = "test:consultation"
+        updated["notes"] = build_slot_notes(updated, preserve_goal_detail=True)
+        updated["callback_requested"] = True
+        updated["request_status"] = "need info"
+        return {
+            "collected_data": updated,
+            "booking_stage": "ready",
+            "answer": "Тестовый режим: консультационный запрос собран. Мы бы связались с клиентом в ближайшее время.",
+        }
+
+    result = create_consultation_request(updated, message)
+    if not result.get("ok"):
+        return {
+            "collected_data": updated,
+            "booking_stage": "need_contact",
+            "answer": "Не удалось сохранить заявку на консультацию. Оставьте контакт ещё раз или попробуйте чуть позже.",
+        }
+
+    updated["goal"] = result.get("goal", updated.get("goal"))
+    updated["selected_slot"] = result.get("selected_slot", "TBD/")
+    updated["booked_slot_id"] = result.get("slot_id")
+    updated["notes"] = result.get("notes")
+    updated["callback_requested"] = True
+    updated["request_status"] = "need info"
+    return {
+        "collected_data": updated,
+        "booking_stage": "ready",
+        "answer": "Спасибо. Мы свяжемся с вами в ближайшее время.",
     }
 
 
@@ -392,7 +468,7 @@ def qualification(state):
 
     inferred_goal = (
         infer_goal_from_message(message, intent)
-        if _should_update_goal(booking_stage, message, entities)
+        if _should_update_goal(booking_stage, message, entities, intent)
         else ""
     )
     if inferred_goal and not _looks_like_contact_message(inferred_goal, entities):
@@ -408,6 +484,16 @@ def qualification(state):
             "collected_data": {},
             "booking_stage": "cancelled",
             "answer": "Понял. Тогда отменяем запись. Будем рады видеть вас в другой раз.",
+        }
+
+    if _should_offer_consultation_callback(booking_stage, message):
+        collected["goal"] = build_consultation_goal(message, collected)
+        if collected.get("contact"):
+            return _finalize_consultation_request(collected, message, test_mode)
+        return {
+            "collected_data": collected,
+            "booking_stage": "need_contact",
+            "answer": "Понял. Оставьте, пожалуйста, удобный контакт, и мы свяжемся с вами в ближайшее время.",
         }
 
     if booking_stage in {"ready", "need_goal", "need_contact", "offer_slots"} and _should_force_new_bike_flow(message):
@@ -479,6 +565,15 @@ def qualification(state):
         }
 
     if booking_stage == "need_goal" and collected.get("goal"):
+        if _is_consultation_goal(collected):
+            if collected.get("contact"):
+                return _finalize_consultation_request(collected, message, test_mode)
+            return {
+                "collected_data": collected,
+                "booking_stage": "need_contact",
+                "answer": "Понял. Оставьте, пожалуйста, удобный контакт, и мы свяжемся с вами в ближайшее время.",
+            }
+
         if collected.get("contact"):
             preferred_slot_request = collected.get("preferred_slot_request")
             slots = (
@@ -501,6 +596,9 @@ def qualification(state):
         }
 
     if booking_stage == "need_contact" and collected.get("contact"):
+        if _is_consultation_goal(collected):
+            return _finalize_consultation_request(collected, message, test_mode)
+
         preferred_slot_request = collected.get("preferred_slot_request")
         slots = (
             suggest_slots_for_preference(preferred_slot_request, limit=5)
@@ -591,6 +689,15 @@ def qualification(state):
     should_enter_booking_funnel = intent in booking_intents or bool(collected.get("goal"))
 
     if should_enter_booking_funnel:
+        if _is_consultation_goal(collected):
+            if not collected.get("contact"):
+                return {
+                    "collected_data": collected,
+                    "booking_stage": "need_contact",
+                    "answer": "Оставьте, пожалуйста, удобный контакт, и мы свяжемся с вами в ближайшее время.",
+                }
+            return _finalize_consultation_request(collected, message, test_mode)
+
         if not collected.get("make"):
             return {
                 "collected_data": collected,
