@@ -154,6 +154,8 @@ def _should_offer_consultation_callback(booking_stage: str, message: str) -> boo
 
 
 def _is_consultation_goal(collected: dict) -> bool:
+    if collected.get("pending_callback_request") or collected.get("callback_requested"):
+        return True
     goal = (collected.get("goal") or "").strip()
     intent = collected.get("intent") or ""
     return is_consultation_request(goal) or normalize_goal(goal, intent) == "консультация"
@@ -171,6 +173,7 @@ def _finalize_consultation_request(collected: dict, message: str, test_mode: boo
         updated["booked_slot_id"] = "test:consultation"
         updated["notes"] = build_slot_notes(updated, preserve_goal_detail=True)
         updated["callback_requested"] = True
+        updated.pop("pending_callback_request", None)
         updated["request_status"] = "need info"
         return {
             "collected_data": updated,
@@ -191,6 +194,7 @@ def _finalize_consultation_request(collected: dict, message: str, test_mode: boo
     updated["booked_slot_id"] = result.get("slot_id")
     updated["notes"] = result.get("notes")
     updated["callback_requested"] = True
+    updated.pop("pending_callback_request", None)
     updated["request_status"] = "need info"
     return {
         "collected_data": updated,
@@ -488,6 +492,7 @@ def qualification(state):
 
     if _should_offer_consultation_callback(booking_stage, message):
         collected["goal"] = build_consultation_goal(message, collected)
+        collected["pending_callback_request"] = True
         if collected.get("contact"):
             return _finalize_consultation_request(collected, message, test_mode)
         return {

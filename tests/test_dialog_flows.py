@@ -149,6 +149,30 @@ class QualificationFlowTests(unittest.TestCase):
 
     @patch("app.graph.nodes.qualification.get_free_slots")
     @patch("app.graph.nodes.qualification.suggest_slots_for_preference")
+    def test_pending_callback_request_survives_contact_step(self, mock_suggest, mock_free):
+        mock_suggest.return_value = []
+        mock_free.side_effect = self._slots
+
+        result = qualification(
+            {
+                "user_message": "@testuser",
+                "intent": "other",
+                "entities": {"contact": "@testuser", "contact_type": "telegram"},
+                "booking_stage": "need_contact",
+                "collected_data": {
+                    "intent": "diagnostics",
+                    "goal": "Нужна консультация по настройке",
+                    "pending_callback_request": True,
+                },
+                "test_mode": True,
+            }
+        )
+        self.assertEqual(result["booking_stage"], "ready")
+        self.assertTrue(result["collected_data"]["callback_requested"])
+        self.assertNotIn("pending_callback_request", result["collected_data"])
+
+    @patch("app.graph.nodes.qualification.get_free_slots")
+    @patch("app.graph.nodes.qualification.suggest_slots_for_preference")
     def test_same_bike_same_work_after_ready_returns_slots(self, mock_suggest, mock_free):
         mock_suggest.return_value = []
         mock_free.side_effect = self._slots
