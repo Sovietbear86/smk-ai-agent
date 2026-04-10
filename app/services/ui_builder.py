@@ -10,6 +10,7 @@ def enrich_result_with_ui(result: dict[str, Any]) -> dict[str, Any]:
 
     bike_brand = (collected_data.get("bike_brand") or "").strip().lower()
     goal = (collected_data.get("goal") or "").strip().lower()
+    pending_additional_booking = (collected_data.get("pending_additional_booking") or "").strip()
 
     if booking_stage == "not_started":
         quick_replies = [
@@ -37,6 +38,13 @@ def enrich_result_with_ui(result: dict[str, Any]) -> dict[str, Any]:
 
     elif booking_stage == "choose_slot" and available_slots:
         quick_replies = []
+
+    elif booking_stage == "ready" and pending_additional_booking == "same_bike_unspecified_work":
+        quick_replies = [
+            {"label": "Тот же тип работ", "value": "Тоже"},
+            {"label": "Другой тип работ", "value": "Другой тип работ"},
+            {"label": "Другой мотоцикл", "value": "Хочу записать другой мотоцикл или другого человека"},
+        ]
 
     elif booking_stage == "ready":
         quick_replies = [

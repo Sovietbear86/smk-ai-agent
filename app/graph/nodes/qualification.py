@@ -208,6 +208,53 @@ def _mentions_additional_slot_same_work(message: str) -> bool:
     return any(phrase in lower_message for phrase in phrases)
 
 
+def _mentions_same_work(message: str) -> bool:
+    lower_message = (message or "").lower()
+    phrases = (
+        "тот же тип работ",
+        "тот же тип работы",
+        "та же работа",
+        "та же услуга",
+        "то же самое",
+        "то же",
+        "тоже",
+        "так же",
+        "такой же",
+        "аналогично",
+        "тот же запрос",
+        "тот же вид работ",
+    )
+    return any(phrase in lower_message for phrase in phrases)
+
+
+def _mentions_different_work(message: str) -> bool:
+    lower_message = (message or "").lower()
+    return _mentions_new_work_same_bike(message) or any(
+        phrase in lower_message
+        for phrase in (
+            "другой тип работ",
+            "другой тип работы",
+            "другой вид работ",
+            "другая работа",
+            "другая услуга",
+        )
+    )
+
+
+def _build_same_bike_work_clarification(collected: dict) -> dict:
+    return {
+        "collected_data": {
+            **collected,
+            "pending_additional_booking": "same_bike_unspecified_work",
+        },
+        "booking_stage": "ready",
+        "answer": (
+            "Понял. Для этого же мотоцикла нужна запись на тот же тип работ или на другой? "
+            "Если тот же, сразу подберу ещё один слот. Если другой, спрошу новую цель."
+        ),
+    }
+
+
 def _restart_booking_after_ready(
     previous_collected: dict,
     current_collected: dict,
@@ -218,6 +265,18 @@ def _restart_booking_after_ready(
     other_person = _mentions_other_person(message)
     new_work_same_bike = _mentions_new_work_same_bike(message)
     additional_slot_same_work = _mentions_additional_slot_same_work(message)
+    same_work = _mentions_same_work(message)
+    different_work = _mentions_different_work(message)
+
+    pending_mode = previous_collected.get("pending_additional_booking")
+    if pending_mode == "same_bike_unspecified_work":
+        if different_work:
+            new_work_same_bike = True
+            additional_slot_same_work = False
+        elif same_work or not different_work:
+            additional_slot_same_work = True
+            new_work_same_bike = False
+
     if additional_slot_same_work:
         new_work_same_bike = False
 
@@ -254,6 +313,8 @@ def _restart_booking_after_ready(
 
     if another_bike or new_work_same_bike:
         next_collected.pop("goal", None)
+
+    next_collected.pop("pending_additional_booking", None)
 
     if next_collected.get("make") and next_collected.get("goal"):
         if next_collected.get("contact"):
@@ -301,6 +362,12 @@ def _should_force_new_bike_flow(message: str) -> bool:
     return _mentions_another_bike(message) or _mentions_other_person(message)
 
 
+def _should_resolve_pending_same_bike_work(collected: dict, message: str) -> bool:
+    if (collected.get("pending_additional_booking") or "") != "same_bike_unspecified_work":
+        return False
+    return _mentions_same_work(message) or _mentions_different_work(message)
+
+
 def qualification(state):
     intent = state.get("intent", "other")
     entities = state.get("entities", {})
@@ -340,6 +407,12 @@ def qualification(state):
         }
 
     if booking_stage in {"ready", "need_goal", "need_contact", "offer_slots"} and _should_force_new_bike_flow(message):
+        return _restart_booking_after_ready(previous_collected, collected, message, intent)
+
+    if booking_stage == "ready" and _mentions_additional_slot_same_work(message):
+        return _build_same_bike_work_clarification(collected)
+
+    if booking_stage == "ready" and _should_resolve_pending_same_bike_work(collected, message):
         return _restart_booking_after_ready(previous_collected, collected, message, intent)
 
     if booking_stage == "ready" and is_slot_change_request(message):
