@@ -14,8 +14,8 @@ def enrich_result_with_ui(result: dict[str, Any]) -> dict[str, Any]:
 
     if booking_stage == "not_started":
         quick_replies = [
-            {"label": "Настройка ECU", "value": "Интересует настройка ECU"},
-            {"label": "Диностенд", "value": "Хочу записаться на диностенд"},
+            {"label": "Настройка", "value": "Интересует настройка ECU"},
+            {"label": "Замер", "value": "Хочу записаться на диностенд"},
             {"label": "Консультация", "value": "Нужна консультация по тюнингу"},
         ]
 

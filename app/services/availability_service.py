@@ -619,15 +619,14 @@ def normalize_goal(goal: str, intent: str = "") -> str:
         "настрой", "ecu", "прошив", "flash", "калибров", "карта",
     ]
 
+    if any(token in text for token in consultation_tokens):
+        return "консультация"
     if any(token in text for token in tuning_tokens):
         return "настройка"
     if any(token in text for token in measurement_tokens):
         return "замер"
-    if any(token in text for token in consultation_tokens):
-        return "консультация"
 
     return goal.strip()
-
 
 def infer_goal_from_message(message: str, intent: str = "") -> str:
     text = (message or "").strip()
@@ -693,6 +692,9 @@ def is_consultation_request(user_message: str) -> bool:
 def build_consultation_goal(message: str, collected_data: dict) -> str:
     raw_message = (message or "").strip()
     previous_goal = (collected_data.get("goal") or "").strip()
+    if previous_goal.lower().startswith("консультация по вопросу:"):
+        previous_goal = previous_goal.split(":", 1)[1].strip()
+
     inferred_goal = infer_goal_from_message(raw_message, collected_data.get("intent") or "")
     normalized_inferred = normalize_goal(inferred_goal, collected_data.get("intent") or "")
 
@@ -709,7 +711,6 @@ def build_consultation_goal(message: str, collected_data: dict) -> str:
         return "консультация"
 
     return inferred_goal or "консультация"
-
 
 def build_slot_notes(collected_data: dict, preserve_goal_detail: bool = False) -> str:
     make = (collected_data.get("make") or "").strip()

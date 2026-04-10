@@ -171,6 +171,68 @@ class QualificationFlowTests(unittest.TestCase):
         self.assertTrue(result["collected_data"]["callback_requested"])
         self.assertNotIn("pending_callback_request", result["collected_data"])
 
+    def test_offer_slots_hesitation_asks_about_consultation_first(self):
+        result = qualification(
+            {
+                "user_message": "пока не готов",
+                "intent": "other",
+                "entities": {},
+                "booking_stage": "offer_slots",
+                "collected_data": {
+                    "make": "Honda",
+                    "model": "Transalp 650",
+                    "year": "2010",
+                    "goal": "настройка и замер",
+                    "contact": "@testuser",
+                    "contact_type": "telegram",
+                    "offered_slot_ids": ["slot_021", "slot_022"],
+                },
+                "test_mode": True,
+            }
+        )
+        self.assertEqual(result["booking_stage"], "offer_slots")
+        self.assertTrue(result["collected_data"]["pending_offer_slots_consultation_prompt"])
+        self.assertIn("нужна ли вам консультация", result["answer"].lower())
+
+    def test_offer_slots_hesitation_yes_creates_callback_request(self):
+        result = qualification(
+            {
+                "user_message": "да",
+                "intent": "other",
+                "entities": {},
+                "booking_stage": "offer_slots",
+                "collected_data": {
+                    "make": "Honda",
+                    "model": "Transalp 650",
+                    "year": "2010",
+                    "goal": "настройка и замер",
+                    "contact": "@testuser",
+                    "contact_type": "telegram",
+                    "pending_offer_slots_consultation_prompt": True,
+                },
+                "test_mode": True,
+            }
+        )
+        self.assertEqual(result["booking_stage"], "ready")
+        self.assertTrue(result["collected_data"]["callback_requested"])
+        self.assertIn("консультация по вопросу: настройка и замер", result["collected_data"]["notes"])
+
+    def test_offer_slots_hesitation_no_finishes_politely(self):
+        result = qualification(
+            {
+                "user_message": "в другой раз",
+                "intent": "other",
+                "entities": {},
+                "booking_stage": "offer_slots",
+                "collected_data": {
+                    "pending_offer_slots_consultation_prompt": True,
+                },
+                "test_mode": True,
+            }
+        )
+        self.assertEqual(result["booking_stage"], "cancelled")
+        self.assertIn("хорошего дня", result["answer"].lower())
+
     @patch("app.graph.nodes.qualification.get_free_slots")
     @patch("app.graph.nodes.qualification.suggest_slots_for_preference")
     def test_same_bike_same_work_after_ready_returns_slots(self, mock_suggest, mock_free):

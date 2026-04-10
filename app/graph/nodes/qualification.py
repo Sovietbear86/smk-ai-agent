@@ -147,8 +147,49 @@ def _build_post_booking_closure(collected: dict) -> dict:
     }
 
 
+def _is_offer_slots_hesitation(message: str) -> bool:
+    lowered = (message or "").strip().lower()
+    hesitation_phrases = (
+        "не готов",
+        "не готов к записи",
+        "пока не готов",
+        "позже",
+        "в другой раз",
+        "в другое время",
+        "не сейчас",
+        "сначала нужно получить ответ",
+        "сначала хочу получить ответ",
+        "нужна консультация",
+        "перезвоните",
+        "перезвони",
+        "свяжитесь",
+    )
+    return any(phrase in lowered for phrase in hesitation_phrases)
+
+
+def _is_yes_like(message: str) -> bool:
+    lowered = (message or "").strip().lower()
+    return lowered in {"да", "ага", "угу", "нужна", "нужна консультация", "хочу консультацию", "перезвоните"}
+
+
+def _is_no_like(message: str) -> bool:
+    lowered = (message or "").strip().lower()
+    no_phrases = (
+        "нет",
+        "не надо",
+        "не нужна",
+        "не нужна консультация",
+        "не готов",
+        "пока не готов",
+        "в другой раз",
+        "в другое время",
+        "не сейчас",
+    )
+    return lowered in no_phrases or any(phrase == lowered for phrase in no_phrases)
+
+
 def _should_offer_consultation_callback(booking_stage: str, message: str) -> bool:
-    if booking_stage in {"ready", "cancelled"}:
+    if booking_stage in {"offer_slots", "ready", "cancelled"}:
         return False
     return is_consultation_request(message)
 
@@ -629,6 +670,45 @@ def qualification(state):
 
     if booking_stage == "offer_slots":
         offered_slot_ids = collected.get("offered_slot_ids") or []
+        if collected.get("pending_offer_slots_consultation_prompt"):
+            if _is_yes_like(message):
+                callback_collected = {
+                    **collected,
+                    "pending_callback_request": True,
+                    "goal": build_consultation_goal(message, collected),
+                }
+                callback_collected.pop("pending_offer_slots_consultation_prompt", None)
+                if callback_collected.get("contact"):
+                    return _finalize_consultation_request(callback_collected, message, test_mode)
+                return {
+                    "collected_data": callback_collected,
+                    "booking_stage": "need_contact",
+                    "answer": "Оставьте, пожалуйста, удобный контакт, и мы свяжемся с вами в ближайшее время.",
+                }
+
+            if _is_no_like(message):
+                return {
+                    "collected_data": {},
+                    "booking_stage": "cancelled",
+                    "answer": "Понял. Тогда на сегодня остановимся. Хорошего дня, будем ждать вас, когда решите к нам обратиться.",
+                }
+
+            return {
+                "collected_data": collected,
+                "booking_stage": "offer_slots",
+                "answer": "Нужна ли вам консультация? Если да, мы передадим заявку специалисту. Если нет, просто напишите, и на этом остановимся.",
+            }
+
+        if _is_offer_slots_hesitation(message):
+            return {
+                "collected_data": {
+                    **collected,
+                    "pending_offer_slots_consultation_prompt": True,
+                },
+                "booking_stage": "offer_slots",
+                "answer": "Понял. Нужна ли вам консультация?",
+            }
+
         matched_slot = find_matching_slot(message, offered_slot_ids=offered_slot_ids)
 
         if matched_slot:
