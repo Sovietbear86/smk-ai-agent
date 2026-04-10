@@ -1,3 +1,5 @@
+import re
+
 from app.services.availability_service import (
     book_slot,
     build_slot_notes,
@@ -158,24 +160,26 @@ def _mentions_another_bike(message: str) -> bool:
 
 def _mentions_other_person(message: str) -> bool:
     lower_message = (message or "").lower()
-    phrases = (
-        "друг",
-        "друга",
-        "другу",
-        "родственник",
-        "родственника",
-        "жена",
-        "муж",
-        "брат",
-        "сестра",
-        "отец",
-        "папа",
-        "мама",
-        "сын",
-        "дочь",
-        "для другого человека",
+    if "для другого человека" in lower_message:
+        return True
+
+    patterns = (
+        r"\bдруг\b",
+        r"\bдруга\b",
+        r"\bдругу\b",
+        r"\bродственник\b",
+        r"\bродственника\b",
+        r"\bжена\b",
+        r"\bмуж\b",
+        r"\bбрат\b",
+        r"\bсестра\b",
+        r"\bотец\b",
+        r"\bпапа\b",
+        r"\bмама\b",
+        r"\bсын\b",
+        r"\bдочь\b",
     )
-    return any(phrase in lower_message for phrase in phrases)
+    return any(re.search(pattern, lower_message) for pattern in patterns)
 
 
 def _mentions_new_work_same_bike(message: str) -> bool:
@@ -475,6 +479,21 @@ def qualification(state):
         }
 
     if booking_stage == "need_goal" and collected.get("goal"):
+        if collected.get("contact"):
+            preferred_slot_request = collected.get("preferred_slot_request")
+            slots = (
+                suggest_slots_for_preference(preferred_slot_request, limit=5)
+                if preferred_slot_request
+                else []
+            ) or get_free_slots(limit=5)
+            if slots:
+                intro = (
+                    "Под ваш запрос ближе всего подходят такие свободные окна:"
+                    if preferred_slot_request
+                    else None
+                )
+                return _build_offer_response(collected, slots, intro)
+
         return {
             "collected_data": collected,
             "booking_stage": "need_contact",
