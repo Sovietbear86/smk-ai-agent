@@ -221,11 +221,16 @@ def _restart_booking_after_ready(
     if additional_slot_same_work:
         new_work_same_bike = False
 
-    next_collected = {
-        "intent": intent,
-    }
+    if another_bike or other_person:
+        next_collected = {
+            "intent": intent,
+        }
+    else:
+        next_collected = {
+            "intent": intent,
+        }
 
-    if not other_person:
+    if not other_person and not another_bike:
         next_collected["contact"] = previous_collected.get("contact")
         next_collected["contact_type"] = previous_collected.get("contact_type")
 
@@ -245,6 +250,7 @@ def _restart_booking_after_ready(
     if another_bike:
         for key in ("make", "model", "year"):
             next_collected.pop(key, None)
+        next_collected.pop("preferred_slot_request", None)
 
     if another_bike or new_work_same_bike:
         next_collected.pop("goal", None)
@@ -291,6 +297,10 @@ def _restart_booking_after_ready(
     }
 
 
+def _should_force_new_bike_flow(message: str) -> bool:
+    return _mentions_another_bike(message) or _mentions_other_person(message)
+
+
 def qualification(state):
     intent = state.get("intent", "other")
     entities = state.get("entities", {})
@@ -328,6 +338,9 @@ def qualification(state):
             "booking_stage": "cancelled",
             "answer": "Понял. Тогда отменяем запись. Будем рады видеть вас в другой раз.",
         }
+
+    if booking_stage in {"ready", "need_goal", "need_contact", "offer_slots"} and _should_force_new_bike_flow(message):
+        return _restart_booking_after_ready(previous_collected, collected, message, intent)
 
     if booking_stage == "ready" and is_slot_change_request(message):
         slots = get_free_slots(limit=5)
