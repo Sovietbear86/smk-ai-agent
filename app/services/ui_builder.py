@@ -36,12 +36,14 @@ def enrich_result_with_ui(result: dict[str, Any]) -> dict[str, Any]:
         ]
 
     elif booking_stage == "choose_slot" and available_slots:
-        # quick replies не нужны, потому что слоты отрисуются отдельно
         quick_replies = []
 
     elif booking_stage == "ready":
         quick_replies = [
             {"label": "Изменить слот", "value": "Хочу выбрать другой слот"},
+            {"label": "Ещё слот", "value": "Хочу еще один слот для этого же мотоцикла"},
+            {"label": "Другая работа", "value": "Нужна еще одна работа на этот же мотоцикл"},
+            {"label": "Другой мотоцикл", "value": "Хочу записать другой мотоцикл или другого человека"},
         ]
 
     return {

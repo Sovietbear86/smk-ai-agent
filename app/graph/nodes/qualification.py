@@ -156,19 +156,80 @@ def _mentions_another_bike(message: str) -> bool:
     return any(phrase in lower_message for phrase in phrases)
 
 
+def _mentions_other_person(message: str) -> bool:
+    lower_message = (message or "").lower()
+    phrases = (
+        "друг",
+        "друга",
+        "другу",
+        "родственник",
+        "родственника",
+        "жена",
+        "муж",
+        "брат",
+        "сестра",
+        "отец",
+        "папа",
+        "мама",
+        "сын",
+        "дочь",
+        "для другого человека",
+    )
+    return any(phrase in lower_message for phrase in phrases)
+
+
+def _mentions_new_work_same_bike(message: str) -> bool:
+    lower_message = (message or "").lower()
+    phrases = (
+        "другая работа",
+        "другой вид работ",
+        "другой тип работ",
+        "еще одна работа",
+        "ещё одна работа",
+        "другая услуга",
+        "еще одна услуга",
+        "ещё одна услуга",
+        "на этот же мотоцикл",
+        "для этого же мотоцикла",
+    )
+    return any(phrase in lower_message for phrase in phrases)
+
+
+def _mentions_additional_slot_same_work(message: str) -> bool:
+    lower_message = (message or "").lower()
+    phrases = (
+        "еще один слот",
+        "ещё один слот",
+        "еще слот",
+        "ещё слот",
+        "дополнительный слот",
+        "для этого же мотоцикла",
+    )
+    return any(phrase in lower_message for phrase in phrases)
+
+
 def _restart_booking_after_ready(
     previous_collected: dict,
     current_collected: dict,
     message: str,
     intent: str,
 ) -> dict:
+    another_bike = _mentions_another_bike(message)
+    other_person = _mentions_other_person(message)
+    new_work_same_bike = _mentions_new_work_same_bike(message)
+    additional_slot_same_work = _mentions_additional_slot_same_work(message)
+    if additional_slot_same_work:
+        new_work_same_bike = False
+
     next_collected = {
-        "contact": previous_collected.get("contact"),
-        "contact_type": previous_collected.get("contact_type"),
         "intent": intent,
     }
 
-    if not _mentions_another_bike(message):
+    if not other_person:
+        next_collected["contact"] = previous_collected.get("contact")
+        next_collected["contact_type"] = previous_collected.get("contact_type")
+
+    if not another_bike:
         for key in ("make", "model", "year", "goal"):
             if previous_collected.get(key):
                 next_collected[key] = previous_collected[key]
@@ -176,6 +237,17 @@ def _restart_booking_after_ready(
     for key in ("make", "model", "year", "goal", "contact", "contact_type", "preferred_slot_request"):
         if current_collected.get(key):
             next_collected[key] = current_collected[key]
+
+    if other_person:
+        next_collected.pop("contact", None)
+        next_collected.pop("contact_type", None)
+
+    if another_bike:
+        for key in ("make", "model", "year"):
+            next_collected.pop(key, None)
+
+    if another_bike or new_work_same_bike:
+        next_collected.pop("goal", None)
 
     if next_collected.get("make") and next_collected.get("goal"):
         if next_collected.get("contact"):
