@@ -45,6 +45,41 @@ def _looks_like_bike_description(message: str, entities: dict) -> bool:
     return any(word in lower_message for word in bike_words)
 
 
+def _looks_like_contact_message(message: str, entities: dict) -> bool:
+    if entities.get("contact"):
+        return True
+
+    lowered = (message or "").strip().lower()
+    if not lowered:
+        return False
+
+    if "telegram" in lowered or "whatsapp" in lowered:
+        return True
+
+    if "@" in lowered:
+        return True
+
+    digits_only = "".join(char for char in lowered if char.isdigit())
+    return len(digits_only) >= 10
+
+
+def _should_update_goal(
+    booking_stage: str,
+    message: str,
+    entities: dict,
+) -> bool:
+    if booking_stage in {"offer_slots", "ready", "cancelled"}:
+        return False
+
+    if _looks_like_contact_message(message, entities):
+        return False
+
+    if might_be_slot_preference_message(message):
+        return False
+
+    return True
+
+
 def _build_offer_response(collected: dict, slots: list[dict], intro: str | None = None) -> dict:
     slot_labels = [format_slot(slot) for slot in slots]
     lines = [f"{idx}) {label}" for idx, label in enumerate(slot_labels, start=1)]
@@ -202,8 +237,12 @@ def qualification(state):
     booking_stage = state.get("booking_stage", "not_started")
     booking_intents = {"booking", "ecu", "dyno", "afr", "diagnostics", "contacts"}
 
-    inferred_goal = infer_goal_from_message(message, intent)
-    if inferred_goal:
+    inferred_goal = (
+        infer_goal_from_message(message, intent)
+        if _should_update_goal(booking_stage, message, entities)
+        else ""
+    )
+    if inferred_goal and not _looks_like_contact_message(inferred_goal, entities):
         collected["goal"] = inferred_goal
     if might_be_slot_preference_message(message):
         collected["preferred_slot_request"] = message
