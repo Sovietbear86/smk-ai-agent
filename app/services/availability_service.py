@@ -597,15 +597,15 @@ def normalize_goal(goal: str, intent: str = "") -> str:
     text = (goal or "").strip().lower()
     normalized_intent = (intent or "").strip().lower()
 
+    if not text:
+        return ""
+
     if normalized_intent == "ecu":
         return "настройка"
     if normalized_intent in {"dyno", "afr"}:
         return "замер"
     if normalized_intent in {"diagnostics", "contacts"}:
         return "консультация"
-
-    if not text:
-        return "консультация" if normalized_intent == "other" else ""
 
     consultation_tokens = [
         "консультац", "подобрать", "посовет", "понять", "что делать",

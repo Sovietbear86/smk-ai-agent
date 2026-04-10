@@ -170,6 +170,35 @@ class QualificationFlowTests(unittest.TestCase):
         self.assertEqual(result["booking_stage"], "ready")
         self.assertTrue(result["collected_data"]["callback_requested"])
         self.assertNotIn("pending_callback_request", result["collected_data"])
+        self.assertNotEqual(result["collected_data"]["goal"], "@testuser")
+
+    @patch("app.graph.nodes.qualification.get_free_slots")
+    @patch("app.graph.nodes.qualification.suggest_slots_for_preference")
+    def test_contact_message_does_not_become_callback_goal(self, mock_suggest, mock_free):
+        mock_suggest.return_value = []
+        mock_free.side_effect = self._slots
+
+        result = qualification(
+            {
+                "user_message": "89169333686",
+                "intent": "contacts",
+                "entities": {"contact": "89169333686"},
+                "booking_stage": "need_contact",
+                "collected_data": {
+                    "year": "2018",
+                    "make": "Honda",
+                    "model": "Gold Wing",
+                    "intent": "diagnostics",
+                    "pending_callback_request": True,
+                },
+                "test_mode": True,
+            }
+        )
+        self.assertEqual(result["booking_stage"], "ready")
+        self.assertEqual(result["collected_data"]["contact"], "89169333686")
+        self.assertNotEqual(result["collected_data"]["goal"], "89169333686")
+        self.assertIn("goal=консультация", result["collected_data"]["notes"])
+        self.assertIn("contact=89169333686", result["collected_data"]["notes"])
 
     def test_offer_slots_hesitation_asks_about_consultation_first(self):
         result = qualification(

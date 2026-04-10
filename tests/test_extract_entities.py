@@ -42,5 +42,9 @@ class ExtractEntitiesTests(unittest.TestCase):
         self.assertEqual(normalized, "консультация")
 
 
+    def test_normalize_goal_does_not_infer_from_empty_string(self):
+        self.assertEqual(normalize_goal("", "diagnostics"), "")
+        self.assertEqual(normalize_goal("", "contacts"), "")
+
 if __name__ == "__main__":
     unittest.main()

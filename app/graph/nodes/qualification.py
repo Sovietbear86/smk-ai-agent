@@ -198,15 +198,18 @@ def _is_consultation_goal(collected: dict) -> bool:
     if collected.get("pending_callback_request") or collected.get("callback_requested"):
         return True
     goal = (collected.get("goal") or "").strip()
+    if not goal:
+        return False
     intent = collected.get("intent") or ""
     return is_consultation_request(goal) or normalize_goal(goal, intent) == "консультация"
 
 
 def _finalize_consultation_request(collected: dict, message: str, test_mode: bool) -> dict:
     existing_goal = (collected.get("goal") or "").strip()
+    source_message = "" if _looks_like_contact_message(message, {"contact": collected.get("contact")}) else message
     updated = {
         **collected,
-        "goal": existing_goal or build_consultation_goal(message, collected),
+        "goal": existing_goal or build_consultation_goal(source_message, collected),
     }
 
     if test_mode:
