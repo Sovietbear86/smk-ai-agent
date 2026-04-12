@@ -58,5 +58,17 @@ class ExtractEntitiesTests(unittest.TestCase):
         self.assertEqual(normalize_goal("", "diagnostics"), "")
         self.assertEqual(normalize_goal("", "contacts"), "")
 
+    def test_normalize_goal_keeps_direct_dyno_request_as_measurement(self):
+        self.assertEqual(
+            normalize_goal("\u0418\u043d\u0442\u0435\u0440\u0435\u0441\u0443\u0435\u0442 \u0437\u0430\u043c\u0435\u0440 \u043d\u0430 \u0434\u0438\u043d\u043e\u0441\u0442\u0435\u043d\u0434\u0435", "other"),
+            "замер",
+        )
+
+    def test_normalize_goal_keeps_direct_ecu_request_as_tuning(self):
+        self.assertEqual(
+            normalize_goal("\u0418\u043d\u0442\u0435\u0440\u0435\u0441\u0443\u0435\u0442 \u043d\u0430\u0441\u0442\u0440\u043e\u0439\u043a\u0430 ECU", "other"),
+            "настройка",
+        )
+
 if __name__ == "__main__":
     unittest.main()

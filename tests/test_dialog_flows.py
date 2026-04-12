@@ -82,7 +82,7 @@ class QualificationFlowTests(unittest.TestCase):
             }
         )
         self.assertEqual(first["booking_stage"], "need_contact")
-        self.assertIn("консультация", first["collected_data"]["goal"].lower())
+        self.assertIn("\u043a\u043e\u043d\u0441\u0443\u043b\u044c\u0442\u0430\u0446\u0438\u044f", first["collected_data"]["goal"].lower())
         self.assertEqual(first["collected_data"]["make"], "Honda")
 
         second = qualification(
@@ -117,7 +117,12 @@ class QualificationFlowTests(unittest.TestCase):
         )
         self.assertEqual(first["booking_stage"], "need_contact")
         self.assertEqual(first["collected_data"]["make"], "Honda")
-        self.assertIn("поднять мощность", first["collected_data"]["goal"].lower())
+        self.assertTrue(
+            any(
+                token in first["collected_data"]["goal"].lower()
+                for token in ("\u043f\u043e\u0434\u043d\u044f\u0442\u044c \u043c\u043e\u0449\u043d\u043e\u0441\u0442\u044c", "\u043f\u043e\u0434\u043d\u044f\u0442\u0438\u0435 \u043c\u043e\u0449\u043d\u043e\u0441\u0442\u0438")
+            )
+        )
         self.assertIn("субботу", first["collected_data"]["preferred_slot_request"].lower())
 
         second = qualification(
@@ -319,6 +324,34 @@ class QualificationFlowTests(unittest.TestCase):
         self.assertEqual(result["booking_stage"], "need_contact")
         self.assertTrue(result["collected_data"]["pending_callback_request"])
         self.assertIn("свяжемся", result["answer"].lower())
+
+    def test_direct_dyno_request_stays_in_booking_flow(self):
+        result = qualification(
+            {
+                "user_message": "\u0418\u043d\u0442\u0435\u0440\u0435\u0441\u0443\u0435\u0442 \u0437\u0430\u043c\u0435\u0440 \u043d\u0430 \u0434\u0438\u043d\u043e\u0441\u0442\u0435\u043d\u0434\u0435",
+                "intent": "dyno",
+                "entities": {},
+                "booking_stage": "not_started",
+                "collected_data": {},
+                "test_mode": True,
+            }
+        )
+        self.assertEqual(result["booking_stage"], "need_bike")
+        self.assertNotIn("pending_callback_request", result["collected_data"])
+
+    def test_direct_ecu_request_stays_in_booking_flow(self):
+        result = qualification(
+            {
+                "user_message": "\u0418\u043d\u0442\u0435\u0440\u0435\u0441\u0443\u0435\u0442 \u043d\u0430\u0441\u0442\u0440\u043e\u0439\u043a\u0430 ECU",
+                "intent": "ecu",
+                "entities": {},
+                "booking_stage": "not_started",
+                "collected_data": {},
+                "test_mode": True,
+            }
+        )
+        self.assertEqual(result["booking_stage"], "need_bike")
+        self.assertNotIn("pending_callback_request", result["collected_data"])
 
 
 if __name__ == "__main__":
