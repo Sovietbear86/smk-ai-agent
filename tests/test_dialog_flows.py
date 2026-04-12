@@ -305,6 +305,21 @@ class QualificationFlowTests(unittest.TestCase):
         self.assertEqual(second["booking_stage"], "offer_slots")
         self.assertEqual(len(second["available_slots"]), 2)
 
+    def test_diagnostic_question_for_golda_goes_straight_to_contact(self):
+        result = qualification(
+            {
+                "user_message": "\u041f\u0440\u0438\u0432\u0435\u0442! \u0443 \u043c\u0435\u043d\u044f \u0433\u043e\u043b\u0434\u0430 2018. \u0441\u0442\u0430\u043b\u0430 \u043f\u043b\u043e\u0445\u043e \u0442\u044f\u043d\u0443\u0442\u044c \u043d\u0430 \u0432\u044b\u0441\u043e\u043a\u0438\u0445 \u0438 \u043c\u043d\u043e\u0433\u043e \u0436\u0440\u0430\u0442\u044c \u0431\u0435\u043d\u0437\u0430. \u0427\u0442\u043e \u0441\u0434\u0435\u043b\u0430\u0442\u044c?",
+                "intent": "diagnostics",
+                "entities": {"make": "Honda", "model": "Gold Wing", "year": "2018"},
+                "booking_stage": "not_started",
+                "collected_data": {},
+                "test_mode": True,
+            }
+        )
+        self.assertEqual(result["booking_stage"], "need_contact")
+        self.assertTrue(result["collected_data"]["pending_callback_request"])
+        self.assertIn("свяжемся", result["answer"].lower())
+
 
 if __name__ == "__main__":
     unittest.main()

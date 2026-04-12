@@ -104,9 +104,36 @@ MODEL_ALIASES = {
 
 KNOWN_MAKES = set(BRAND_ALIASES.keys())
 
+EXTRA_BRAND_ALIASES = {
+    "Honda": ["\u0433\u043e\u043b\u0434\u0430", "\u0445\u043e\u043d\u0434\u0430", "\u0432\u0443\u0444\u0435\u0440", "\u0442\u0440\u0430\u043d\u0441\u0430\u043b\u044c\u043f", "\u0442\u0440\u0430\u043d\u0441\u043b\u044f\u043f"],
+    "Yamaha": ["\u044f\u043c\u0430\u0445\u0430", "\u0444\u0443\u0436\u0435\u0440", "\u0441\u0443\u0442\u0435\u043d\u0435\u0440"],
+    "Kawasaki": ["\u043a\u0430\u0432\u0430\u0441", "\u0432\u0435\u0440\u0441\u0443\u0441"],
+    "BMW": ["\u0433\u0443\u0441\u044c", "\u0433\u0430\u043d\u0442\u0435\u043b\u044f", "\u0431\u043c\u0432"],
+    "Ducati": ["\u043c\u0443\u043b\u044c\u0442\u0438\u0441\u0442\u0440\u0430\u0434\u0430", "\u043c\u0443\u043b\u044c\u0442\u0438\u0441\u0442\u0440\u0430\u0434\u0430\u043d\u0438\u044f"],
+}
+
+EXTRA_MODEL_ALIASES = {
+    "\u0433\u043e\u043b\u0434\u0430": "Gold Wing",
+    "\u0445\u043e\u043d\u0434\u0430": "Honda",
+    "\u0432\u0443\u0444\u0435\u0440": "VFR",
+    "\u0442\u0440\u0430\u043d\u0441\u0430\u043b\u044c\u043f": "Transalp 650",
+    "\u0442\u0440\u0430\u043d\u0441\u043b\u044f\u043f": "Transalp 650",
+    "\u0444\u0443\u0436\u0435\u0440": "FJR1300",
+    "\u0441\u0443\u0442\u0435\u043d\u0435\u0440": "Super Tenere",
+    "\u0433\u0443\u0441\u044c": "GS",
+    "\u0433\u0430\u043d\u0442\u0435\u043b\u044f": "K1600GTL",
+    "\u0432\u0435\u0440\u0441\u0443\u0441": "Versys",
+    "\u043c\u0443\u043b\u044c\u0442\u0438\u0441\u0442\u0440\u0430\u0434\u0430": "Multistrada",
+    "\u043c\u0443\u043b\u044c\u0442\u0438\u0441\u0442\u0440\u0430\u0434\u0430\u043d\u0438\u044f": "Multistrada",
+}
+
 
 def _find_make_and_alias(lower_text: str):
     for make, aliases in BRAND_ALIASES.items():
+        for alias in aliases:
+            if alias in lower_text:
+                return make, alias
+    for make, aliases in EXTRA_BRAND_ALIASES.items():
         for alias in aliases:
             if alias in lower_text:
                 return make, alias
@@ -155,6 +182,10 @@ def _normalize_model(model: str | None) -> str | None:
     if normalized:
         return normalized
 
+    normalized = EXTRA_MODEL_ALIASES.get(lowered)
+    if normalized:
+        return normalized
+
     return model
 
 
@@ -176,6 +207,22 @@ def _looks_like_bike_message(text: str, entities: dict[str, str]) -> bool:
         "версус", "кавас", "фужер", "мультистрада", "мультистрадания",
         "вуфер",
     }
+    bike_words.update(
+        {
+            "\u0433\u043e\u043b\u0434\u0430",
+            "\u0445\u043e\u043d\u0434\u0430",
+            "\u0432\u0443\u0444\u0435\u0440",
+            "\u0442\u0440\u0430\u043d\u0441\u0430\u043b\u044c\u043f",
+            "\u0442\u0440\u0430\u043d\u0441\u043b\u044f\u043f",
+            "\u0444\u0443\u0436\u0435\u0440",
+            "\u0441\u0443\u0442\u0435\u043d\u0435\u0440",
+            "\u0433\u0443\u0441\u044c",
+            "\u0433\u0430\u043d\u0442\u0435\u043b\u044f",
+            "\u0432\u0435\u0440\u0441\u0443\u0441",
+            "\u043c\u0443\u043b\u044c\u0442\u0438\u0441\u0442\u0440\u0430\u0434\u0430",
+            "\u043c\u0443\u043b\u044c\u0442\u0438\u0441\u0442\u0440\u0430\u0434\u0430\u043d\u0438\u044f",
+        }
+    )
     return any(word in lower_text for word in bike_words)
 
 
