@@ -510,6 +510,25 @@ def _should_resolve_pending_same_bike_work(collected: dict, message: str) -> boo
     return _mentions_same_work(message) or _mentions_different_work(message)
 
 
+def _looks_like_explicit_booking_goal(message: str, intent: str) -> bool:
+    normalized_goal = normalize_goal(message, intent)
+    return normalized_goal in {"настройка", "замер"} or intent in {"ecu", "dyno", "afr", "booking"}
+
+
+def _clear_callback_mode(collected: dict) -> dict:
+    updated = {**collected}
+    for key in (
+        "pending_callback_request",
+        "callback_requested",
+        "request_status",
+        "selected_slot",
+        "booked_slot_id",
+        "notes",
+    ):
+        updated.pop(key, None)
+    return updated
+
+
 def qualification(state):
     intent = state.get("intent", "other")
     entities = state.get("entities", {})
@@ -558,6 +577,11 @@ def qualification(state):
             "booking_stage": "need_contact",
             "answer": "Понял. Оставьте, пожалуйста, удобный контакт, и мы свяжемся с вами в ближайшее время.",
         }
+
+    if collected.get("pending_callback_request") and _looks_like_explicit_booking_goal(message, intent) and not is_consultation_request(message):
+        collected = _clear_callback_mode(collected)
+        if inferred_goal and not _looks_like_contact_message(inferred_goal, entities):
+            collected["goal"] = inferred_goal
 
     if booking_stage in {"ready", "need_goal", "need_contact", "offer_slots"} and _should_force_new_bike_flow(message):
         return _restart_booking_after_ready(previous_collected, collected, message, intent)

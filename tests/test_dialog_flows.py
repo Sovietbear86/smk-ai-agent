@@ -354,5 +354,28 @@ class QualificationFlowTests(unittest.TestCase):
         self.assertNotIn("pending_callback_request", result["collected_data"])
 
 
+    def test_explicit_booking_goal_clears_pending_callback_mode(self):
+        result = qualification(
+            {
+                "user_message": "Интересует настройка ECU",
+                "intent": "ecu",
+                "entities": {},
+                "booking_stage": "need_contact",
+                "collected_data": {
+                    "year": "2016",
+                    "make": "BMW",
+                    "model": "1600",
+                    "intent": "diagnostics",
+                    "goal": "Привет! интересует увеличение мощности мотоцикла",
+                    "pending_callback_request": True,
+                },
+                "test_mode": True,
+            }
+        )
+        self.assertEqual(result["booking_stage"], "need_contact")
+        self.assertEqual(result["collected_data"]["goal"], "Интересует настройка ECU")
+        self.assertNotIn("pending_callback_request", result["collected_data"])
+
+
 if __name__ == "__main__":
     unittest.main()
